@@ -1,14 +1,6 @@
-#!/usr/bin/env python
-"""Super-basic example, mainly for testing purposes.
-
-This script trains a tiny network to compute square root. It also
-serves as an example of using dumping.
-
-"""
 import logging
 import math
 import numpy
-from argparse import ArgumentParser
 
 import theano
 from theano import tensor
@@ -23,7 +15,7 @@ from fuel.datasets import IterableDataset
 from fuel.transformers import Batch, Mapping
 from fuel.schemes import ConstantScheme
 from blocks.extensions import FinishAfter, Timing, Printing
-from blocks.extensions.saveload import LoadFromDump, Dump
+from blocks.extensions.saveload import Checkpoint
 from blocks.extensions.monitoring import (TrainingDataMonitoring,
                                           DataStreamMonitoring)
 from blocks.main_loop import MainLoop
@@ -32,14 +24,20 @@ floatX = theano.config.floatX
 
 
 def _data_sqrt(data):
+    """Produces the target values for learning"""
     return (math.sqrt(data[0]),)
 
 
 def _array_tuple(data):
+    """Utility function to 'numpy'-ize the stream appropriately"""
     return tuple((numpy.asarray(d, dtype=floatX) for d in data))
 
 
 def get_data_stream(iterable):
+    """Returns a 'fuel.Batch' datastream of 
+    [x~input~numbers, y~targets~roots], with each iteration returning a 
+    batch of 20 training examples
+    """    
     dataset = IterableDataset({'numbers': iterable})
     data_stream = Mapping(dataset.get_example_stream(),
                           _data_sqrt, add_sources=('roots',))
@@ -47,7 +45,7 @@ def get_data_stream(iterable):
     return Batch(data_stream, ConstantScheme(20))
 
 
-def main(save_to, num_batches, continue_=False):
+def main(save_to, num_batches):
     mlp = MLP([Tanh(), Identity()], [1, 10, 1],
               weights_init=IsotropicGaussian(0.01),
               biases_init=Constant(0), seed=1)
@@ -63,25 +61,15 @@ def main(save_to, num_batches, continue_=False):
             step_rule=Scale(learning_rate=0.001)),
         get_data_stream(range(100)),
         model=Model(cost),
-        extensions=([LoadFromDump(save_to)] if continue_ else []) +
-        [Timing(),
+        extensions=[
+            Timing(),
             FinishAfter(after_n_batches=num_batches),
             DataStreamMonitoring(
                 [cost], get_data_stream(range(100, 200)),
                 prefix="test"),
             TrainingDataMonitoring([cost], after_epoch=True),
-            Dump(save_to),
+            Checkpoint(save_to),
             Printing()])
     main_loop.run()
     return main_loop
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    parser = ArgumentParser("An example of learning to take square root")
-    parser.add_argument("--num-batches", type=int, default=1000,
-                        help="Number of training batches to do.")
-    parser.add_argument("save_to", default="sqrt", nargs="?",
-                        help=("Destination to save the state of the training "
-                              "process."))
-    args = parser.parse_args()
-    main(**vars(args))
