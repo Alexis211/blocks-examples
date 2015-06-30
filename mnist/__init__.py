@@ -40,11 +40,11 @@ def main(save_to, num_epochs, bokeh=False):
     cost = cost + .00005 * (W1 ** 2).sum() + .00005 * (W2 ** 2).sum()
     cost.name = 'final_cost'
 
-    mnist_train = MNIST("train")
-    mnist_test = MNIST("test")
+    mnist_train = MNIST(("train",))
+    mnist_test = MNIST(("test",))
 
     algorithm = GradientDescent(
-        cost=cost, params=cg.parameters,
+        cost=cost, parameters=cg.parameters,
         step_rule=Scale(learning_rate=0.1))
     extensions = [Timing(),
                   FinishAfter(after_n_epochs=num_epochs),

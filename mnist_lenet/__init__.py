@@ -84,8 +84,8 @@ class LeNet(FeedforwardSequence, Initializable):
         self.top_mlp_dims = top_mlp_dims
         self.border_mode = border_mode
 
-        params = zip(conv_activations, filter_sizes, feature_maps,
-                     pooling_sizes)
+        parameters = zip(conv_activations, filter_sizes, feature_maps,
+                         pooling_sizes)
 
         # Construct convolutional layers with corresponding parameters
         self.layers = [ConvolutionalLayer(filter_size=filter_size,
@@ -97,10 +97,9 @@ class LeNet(FeedforwardSequence, Initializable):
                                           name='conv_pool_{}'.format(i))
                        for i, (activation, filter_size, num_filter,
                                pooling_size)
-                       in enumerate(params)]
+                       in enumerate(parameters)]
         self.conv_sequence = ConvolutionalSequence(self.layers, num_channels,
                                                    image_size=image_shape)
-
 
         # Construct a top MLP
         self.top_mlp = MLP(top_mlp_activations, top_mlp_dims)
@@ -180,12 +179,12 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
 
     cg = ComputationGraph([cost, error_rate])
 
-    mnist_train = MNIST("train")
+    mnist_train = MNIST(("train",))
     mnist_train_stream = DataStream.default_stream(
         mnist_train, iteration_scheme=ShuffledScheme(
             mnist_train.num_examples, batch_size))
 
-    mnist_test = MNIST("test")
+    mnist_test = MNIST(("test",))
     mnist_test_stream = DataStream.default_stream(
         mnist_test,
         iteration_scheme=ShuffledScheme(
@@ -193,7 +192,7 @@ def main(save_to, num_epochs, feature_maps=None, mlp_hiddens=None,
 
     # Train with simple SGD
     algorithm = GradientDescent(
-        cost=cost, params=cg.parameters,
+        cost=cost, parameters=cg.parameters,
         step_rule=Scale(learning_rate=0.1))
     # `Timing` extension reports time for reading data, aggregating a batch
     # and monitoring;
@@ -247,4 +246,3 @@ if __name__ == "__main__":
                         help="Batch size.")
     args = parser.parse_args()
     main(**vars(args))
-
