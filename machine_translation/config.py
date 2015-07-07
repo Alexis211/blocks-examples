@@ -96,6 +96,9 @@ def get_config_cs2en():
 
     # Timing/monitoring related -----------------------------------------------
 
+    # Averaging over k training batches
+    config['train_monitor_freq'] = config['sort_k_batches']
+
     # Maximum number of updates
     config['finish_after'] = 1000000
 
@@ -103,13 +106,13 @@ def get_config_cs2en():
     config['reload'] = False
 
     # Save model after this many updates
-    config['save_freq'] = 50
+    config['save_freq'] = None
 
     # Show samples from model after this many updates
     config['sampling_freq'] = 1
 
     # Show this many samples at each sampling
-    config['hook_samples'] = 0
+    config['hook_samples'] = 1
 
     # Validate bleu after this many updates
     config['bleu_val_freq'] = 2000

@@ -67,7 +67,7 @@ class Sampler(SimpleExtension, SamplingBase):
 
         # Get current model parameters
         if not self.is_synced:
-            self.model.params = self.main_loop.model.params
+            self.model.set_parameter_values(self.main_loop.model.get_parameter_values())
             self.is_synced = True
 
         # Get dictionaries, this may not be the practical way

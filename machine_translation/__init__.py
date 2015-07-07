@@ -19,7 +19,7 @@ from blocks.bricks.sequence_generators import (
 from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions import FinishAfter, Printing
 from blocks.extensions.monitoring import TrainingDataMonitoring
-from blocks.extensions.plot import Plot
+from blocks.extras.extensions.plot import Plot
 from blocks.filter import VariableFilter
 from blocks.graph import ComputationGraph, apply_noise, apply_dropout
 from blocks.initialization import IsotropicGaussian, Orthogonal, Constant
@@ -314,8 +314,8 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     logger.info("Initializing extensions")
     extensions = [
         FinishAfter(after_n_batches=config['finish_after']),
-        TrainingDataMonitoring([cost], after_batch=True),
-        Printing(after_batch=True),
+        TrainingDataMonitoring([cost], every_n_batches=config['train_monitor_freq']),
+        Printing(every_n_batches=config['train_monitor_freq']),
         Checkpoint(config['saveto'],
                    save_separately=['log', 'model', 'iteration_state'],
                    every_n_batches=config['save_freq'])
@@ -354,7 +354,8 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     if bokeh:
         extensions.append(
             Plot('Cs-En', channels=[['decoder_cost_cost']],
-                 after_batch=True))
+                 every_n_batches=config['train_monitor_freq'],
+                 server_url='http://eos6:5006'))
 
     # Set up training algorithm
     logger.info("Initializing training algorithm")
