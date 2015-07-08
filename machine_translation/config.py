@@ -103,13 +103,13 @@ def get_config_cs2en():
     config['finish_after'] = 1000000
 
     # Reload model from files if exist
-    config['reload'] = False
+    config['reload'] = True
 
     # Save model after this many updates
-    config['save_freq'] = None
+    config['save_freq'] = 100
 
     # Show samples from model after this many updates
-    config['sampling_freq'] = 1
+    config['sampling_freq'] = 10
 
     # Show this many samples at each sampling
     config['hook_samples'] = 1

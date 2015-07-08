@@ -16,7 +16,6 @@ from blocks.bricks.recurrent import GatedRecurrent, Bidirectional
 from blocks.bricks.sequence_generators import (
     LookupFeedback, Readout, SoftmaxEmitter,
     SequenceGenerator)
-from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions import FinishAfter, Printing
 from blocks.extensions.monitoring import TrainingDataMonitoring
 from blocks.extras.extensions.plot import Plot
@@ -30,6 +29,7 @@ from blocks.select import Selector
 from picklable_itertools.extras import equizip
 from sampling import BleuValidator, Sampler
 
+from machine_translation.ext_saveload import SaveLoadParams
 
 logger = logging.getLogger(__name__)
 
@@ -316,13 +316,15 @@ def main(config, tr_stream, dev_stream, bokeh=False):
         FinishAfter(after_n_batches=config['finish_after']),
         TrainingDataMonitoring([cost], every_n_batches=config['train_monitor_freq']),
         Printing(every_n_batches=config['train_monitor_freq']),
-        Checkpoint(config['saveto'],
-                   save_separately=['log', 'model', 'iteration_state'],
-                   every_n_batches=config['save_freq'])
+        SaveLoadParams(path=config['saveto']+'.pkl',
+                       model=training_model,
+                       every_n_batches=config['save_freq'],
+                       after_training=True,
+                       before_training=config['reload'])
     ]
 
     # Set up beam search and sampling computation graphs if necessary
-    if config['hook_samples'] > 1 or config['bleu_script'] is not None:
+    if config['hook_samples'] >= 1 or config['bleu_script'] is not None:
         logger.info("Building sampling model")
         sampling_representation = encoder.apply(
             sampling_input, tensor.ones(sampling_input.shape))
@@ -333,7 +335,7 @@ def main(config, tr_stream, dev_stream, bokeh=False):
                 ComputationGraph(generated[1]))  # generated[1] is next_outputs
 
     # Add sampling
-    if config['hook_samples'] > 1:
+    if config['hook_samples'] >= 1:
         logger.info("Building sampler")
         extensions.append(
             Sampler(model=search_model, config=config, data_stream=tr_stream,
@@ -345,10 +347,6 @@ def main(config, tr_stream, dev_stream, bokeh=False):
         BleuValidator(sampling_input, samples=samples, config=config,
                       model=search_model, data_stream=dev_stream,
                       every_n_batches=config['bleu_val_freq'])
-
-    # Reload model if necessary
-    if config['reload']:
-        extensions.append(Load(config['saveto']))
 
     # Plot cost in bokeh if necessary
     if bokeh:
