@@ -283,7 +283,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
             # Save the model here
             s = signal.signal(signal.SIGINT, signal.SIG_IGN)
             logger.info("Saving new model {}".format(model.path))
-            numpy.savez(model.path, **self.main_loop.model.get_param_values())
+            numpy.savez(model.path, **self.main_loop.model.get_parameter_values())
             numpy.savez(
                 self.config.val_bleu_scores_out,
                 bleu_scores=self.val_bleu_curve)

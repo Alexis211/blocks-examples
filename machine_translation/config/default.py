@@ -129,8 +129,8 @@ sampling_freq = 10
 hook_samples = 1
 
 # Validate bleu after this many updates
-bleu_val_freq = 100
+bleu_val_freq = 2000
 
 # Start bleu validation after this many updates
-val_burn_in = 0
+val_burn_in = 100000
 
