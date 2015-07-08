@@ -1,5 +1,7 @@
 import os
 
+from blocks.algorithms import AdaDelta
+
 from model.encoder import BidirectionalEncoder as Encoder
 from model.decoder import Decoder as Decoder
 
@@ -31,7 +33,7 @@ batch_size = 80
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = 'AdaDelta'
+step_rule = AdaDelta()
 
 # Gradient clipping threshold
 step_clipping = 1

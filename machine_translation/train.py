@@ -25,7 +25,7 @@ from collections import Counter
 from theano import tensor
 from toolz import merge
 
-from blocks.algorithms import (GradientDescent, StepClipping, AdaDelta,
+from blocks.algorithms import (GradientDescent, StepClipping,
                                CompositeRule)
 from blocks.extensions import FinishAfter, Printing
 from blocks.extensions.monitoring import TrainingDataMonitoring
@@ -122,8 +122,8 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     training_model = Model(cost)
 
     # Create saving directory if it does not exist
-    if not os.path.exists(self.config.saveto):
-        os.makedirs(self.config.saveto)
+    if not os.path.exists(config.saveto):
+        os.makedirs(config.saveto)
 
     # Set extensions
     logger.info("Initializing extensions")
@@ -177,7 +177,7 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     algorithm = GradientDescent(
         cost=cost, parameters=cg.parameters,
         step_rule=CompositeRule([StepClipping(config.step_clipping),
-                                 eval(config.step_rule)()])
+                                 config.step_rule])
     )
 
     # Initialize main loop
