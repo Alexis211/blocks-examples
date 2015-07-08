@@ -20,6 +20,7 @@ import importlib
 import logging
 import pprint
 import os
+import sys
 
 from collections import Counter
 from theano import tensor
@@ -29,13 +30,19 @@ from blocks.algorithms import (GradientDescent, StepClipping,
                                CompositeRule)
 from blocks.extensions import FinishAfter, Printing
 from blocks.extensions.monitoring import TrainingDataMonitoring
-from blocks.extras.extensions.plot import Plot
 from blocks.filter import VariableFilter
 from blocks.graph import ComputationGraph, apply_noise, apply_dropout
 from blocks.initialization import IsotropicGaussian, Orthogonal, Constant
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.select import Selector
+
+try:
+    from blocks.extras.extensions.plot import Plot
+    bokeh_available = True
+except ImportError:
+    bokeh_available = False
+
 
 from sampling import BleuValidator, Sampler
 
@@ -171,7 +178,8 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     # Plot cost in bokeh if necessary
     if bokeh:
         extensions.append(
-            Plot(config.plot_title, channels=[['decoder_cost_cost']],
+            Plot(document=config.plot_title,
+                 channels=[[cost.name]],
                  every_n_batches=config.train_monitor_freq,
                  server_url='http://eos6:5006'))
 
@@ -207,6 +215,10 @@ if __name__ == "__main__":
     parser.add_argument("--bokeh",  default=False, action="store_true",
                         help="Use bokeh server for plotting")
     args = parser.parse_args()
+
+    if args.bokeh and not bokeh_available:
+        logger.error("Sorry, Bokeh is not installed on your system")
+        sys.exit(1)
 
     # Get configurations for model
     config = importlib.import_module("."+args.config, "config")

@@ -73,6 +73,97 @@ class GRUInitialState(GatedRecurrent):
                 add_role(self.parameters[i], WEIGHT)
 
 
+class BaseDecoder(Initializable):
+    """Decoder of RNNsearch model."""
+
+    def __init__(self, vocab_size, embedding_dim, state_dim,
+                 representation_dim, emitter_class, **kwargs):
+        super(BaseDecoder, self).__init__(**kwargs)
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.state_dim = state_dim
+        self.representation_dim = representation_dim
+
+        # Initialize gru with special initial state
+        self.transition = GRUInitialState(
+            attended_dim=state_dim, dim=state_dim,
+            activation=Tanh(), name='decoder')
+
+        # Initialize the attention mechanism
+        self.attention = SequenceContentAttention(
+            state_names=self.transition.apply.states,
+            attended_dim=representation_dim,
+            match_dim=state_dim, name="attention")
+
+        # Initialize the emitter brick
+        # Note that SoftmaxEmitter emits -1 for initial outputs
+        # which is used by LookupFeedBackWMT15
+        self.emitter = emitter_class(readout_dim=embedding_dim,
+                                     output_dim=vocab_size,
+                                     initial_output=-1)
+
+        # Initialize the feedback brick
+        self.feedback_brick = LookupFeedbackWMT15(vocab_size, embedding_dim)
+
+        # Initialize the readout
+        readout = Readout(
+            source_names=['states', 'feedback',
+                          self.attention.take_glimpses.outputs[0]],
+            readout_dim=embedding_dim,
+            emitter=self.emitter,
+            feedback_brick=self.feedback_brick,
+            post_merge=InitializableFeedforwardSequence(
+                [Bias(dim=state_dim, name='maxout_bias').apply,
+                 Maxout(num_pieces=2, name='maxout').apply,
+                 Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
+                        use_bias=False, name='softmax0').apply]),
+            merged_dim=state_dim)
+
+        # Build sequence generator accordingly
+        self.sequence_generator = SequenceGenerator(
+            readout=readout,
+            transition=self.transition,
+            attention=self.attention,
+            fork=Fork([name for name in self.transition.apply.sequences
+                       if name != 'mask'], prototype=Linear())
+        )
+
+        self.children = [self.sequence_generator]
+
+    @application(inputs=['representation', 'source_sentence_mask',
+                         'target_sentence_mask', 'target_sentence'],
+                 outputs=['cost'])
+    def cost(self, representation, source_sentence_mask,
+             target_sentence, target_sentence_mask):
+
+        source_sentence_mask = source_sentence_mask.T
+        target_sentence = target_sentence.T
+        target_sentence_mask = target_sentence_mask.T
+
+        # Get the cost matrix
+        cost = self.sequence_generator.cost_matrix(**{
+            'mask': target_sentence_mask,
+            'outputs': target_sentence,
+            'attended': representation,
+            'attended_mask': source_sentence_mask}
+        )
+
+        return (cost * target_sentence_mask).sum() / \
+            target_sentence_mask.shape[1]
+
+    @application
+    def generate(self, source_sentence, representation):
+        return self.sequence_generator.generate(
+            n_steps=2 * source_sentence.shape[1],
+            batch_size=source_sentence.shape[0],
+            attended=representation,
+            attended_mask=tensor.ones(source_sentence.shape).T,
+            glimpses=self.attention.take_glimpses.outputs[0])
+
+
+# ------------------------------------------------------------------
+#                 Model with Full Softmax Output
+# ------------------------------------------------------------------
 
 class FullSoftmaxEmitter(AbstractEmitter, Initializable, Random):
     """A softmax emitter for the case of integer outputs (classes).
@@ -145,95 +236,53 @@ class FullSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         return super(FullSoftmaxEmitter, self).get_dim(name)
 
 
-class BaseDecoder(Initializable):
-    """Decoder of RNNsearch model."""
-
-    def __init__(self, vocab_size, embedding_dim, state_dim,
-                 representation_dim, emitter_class, **kwargs):
-        super(BaseDecoder, self).__init__(**kwargs)
-        self.vocab_size = vocab_size
-        self.embedding_dim = embedding_dim
-        self.state_dim = state_dim
-        self.representation_dim = representation_dim
-
-        # Initialize gru with special initial state
-        self.transition = GRUInitialState(
-            attended_dim=state_dim, dim=state_dim,
-            activation=Tanh(), name='decoder')
-
-        # Initialize the attention mechanism
-        self.attention = SequenceContentAttention(
-            state_names=self.transition.apply.states,
-            attended_dim=representation_dim,
-            match_dim=state_dim, name="attention")
-
-        # Initialize the emitter brick
-        # Note that SoftmaxEmitter emits -1 for initial outputs
-        # which is used by LookupFeedBackWMT15
-        emitter = emitter_class(readout_dim=embedding_dim,
-                                output_dim=vocab_size,
-                                initial_output=-1)
-
-        # Initialize the feedback brick
-        feedback_brick = LookupFeedbackWMT15(vocab_size, embedding_dim)
-
-        # Initialize the readout
-        readout = Readout(
-            source_names=['states', 'feedback',
-                          self.attention.take_glimpses.outputs[0]],
-            readout_dim=embedding_dim,
-            emitter=emitter,
-            feedback_brick=feedback_brick,
-            post_merge=InitializableFeedforwardSequence(
-                [Bias(dim=state_dim, name='maxout_bias').apply,
-                 Maxout(num_pieces=2, name='maxout').apply,
-                 Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
-                        use_bias=False, name='softmax0').apply]),
-            merged_dim=state_dim)
-
-        # Build sequence generator accordingly
-        self.sequence_generator = SequenceGenerator(
-            readout=readout,
-            transition=self.transition,
-            attention=self.attention,
-            fork=Fork([name for name in self.transition.apply.sequences
-                       if name != 'mask'], prototype=Linear())
-        )
-
-        self.children = [self.sequence_generator]
-
-    @application(inputs=['representation', 'source_sentence_mask',
-                         'target_sentence_mask', 'target_sentence'],
-                 outputs=['cost'])
-    def cost(self, representation, source_sentence_mask,
-             target_sentence, target_sentence_mask):
-
-        source_sentence_mask = source_sentence_mask.T
-        target_sentence = target_sentence.T
-        target_sentence_mask = target_sentence_mask.T
-
-        # Get the cost matrix
-        cost = self.sequence_generator.cost_matrix(**{
-            'mask': target_sentence_mask,
-            'outputs': target_sentence,
-            'attended': representation,
-            'attended_mask': source_sentence_mask}
-        )
-
-        return (cost * target_sentence_mask).sum() / \
-            target_sentence_mask.shape[1]
-
-    @application
-    def generate(self, source_sentence, representation):
-        return self.sequence_generator.generate(
-            n_steps=2 * source_sentence.shape[1],
-            batch_size=source_sentence.shape[0],
-            attended=representation,
-            attended_mask=tensor.ones(source_sentence.shape).T,
-            glimpses=self.attention.take_glimpses.outputs[0])
-
-
 class FullSoftmaxDecoder(BaseDecoder):
     def __init__(self, **kwargs):
         super(FullSoftmaxDecoder, self).__init__(emitter_class=FullSoftmaxEmitter,
                                                  **kwargs)
+
+
+# ------------------------------------------------------------------
+#        Model with Clustering-based Approximate Softmax Output
+# ------------------------------------------------------------------
+
+
+class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
+    def __init__(self, readout_dim, output_dim, initial_output=0, **kwargs):
+        super(FullSoftmaxEmitter, self).__init__(**kwargs)
+
+        self.readout_dim = readout_dim
+        self.output_dim = output_dim
+
+        self.initial_output = initial_output
+
+        # TODO
+
+    @application
+    def emit(self, readouts):
+        # TODO
+        pass
+
+    @application
+    def cost(self, readouts, outputs):
+        # TODO
+        pass
+
+    @application
+    def initial_outputs(self, batch_size):
+        return self.initial_output * tensor.ones((batch_size,), dtype='int64')
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return 0
+        return super(FullSoftmaxEmitter, self).get_dim(name)
+
+
+class ClusteredSoftmaxDecoder(BaseDecoder):
+    def __init__(self, **kwargs):
+        super(ClusteredSoftmaxDecoder, self).__init__(
+                emitter_class=ClusteredSoftmaxEmitter,
+                **kwargs)
+
+
+
