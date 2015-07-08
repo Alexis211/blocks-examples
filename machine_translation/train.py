@@ -56,11 +56,13 @@ def main(config, tr_stream, dev_stream, bokeh=False):
 
     # Construct model
     logger.info('Building RNN encoder-decoder')
-    encoder = config.Encoder(
-        config.src_vocab_size, config.enc_embed, config.enc_nhids)
-    decoder = config.Decoder(
-        config.trg_vocab_size, config.dec_embed, config.dec_nhids,
-        config.enc_nhids * 2)
+    encoder = config.Encoder(vocab_size=config.src_vocab_size,
+                             embedding_dim=config.enc_embed,
+                             state_dim=config.enc_nhids)
+    decoder = config.Decoder(vocab_size=config.trg_vocab_size,
+                             embedding_dim=config.dec_embed,
+                             state_dim=config.dec_nhids,
+                             representation_dim=config.enc_nhids * 2)
     cost = decoder.cost(
         encoder.apply(source_sentence, source_sentence_mask),
         source_sentence_mask, target_sentence, target_sentence_mask)

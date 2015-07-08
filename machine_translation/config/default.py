@@ -3,7 +3,7 @@ import os
 from blocks.algorithms import AdaDelta
 
 from model.encoder import BidirectionalEncoder as Encoder
-from model.decoder import Decoder as Decoder
+from model.decoder import FullSoftmaxDecoder as Decoder
 
 # Model related -----------------------------------------------------------
 
@@ -117,7 +117,7 @@ finish_after = 1000000
 reload = True
 
 # Save model after this many updates
-save_freq = 100
+save_freq = train_monitor_freq
 
 # Show samples from model after this many updates
 sampling_freq = 10

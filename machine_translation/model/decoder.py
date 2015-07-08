@@ -5,12 +5,12 @@ from blocks.roles import add_role, WEIGHT
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import GatedRecurrent
 from blocks.bricks.sequence_generators import (
-    LookupFeedback, Readout, SoftmaxEmitter,
+    LookupFeedback, Readout, AbstractEmitter,
     SequenceGenerator)
 from blocks.bricks.base import application
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks import (Tanh, Maxout, Linear, FeedforwardSequence,
-                           Bias, Initializable, MLP)
+                           Bias, Initializable, MLP, Random)
 
 from blocks.utils import shared_floatx_nans
 
@@ -73,12 +73,84 @@ class GRUInitialState(GatedRecurrent):
                 add_role(self.parameters[i], WEIGHT)
 
 
-class Decoder(Initializable):
+
+class FullSoftmaxEmitter(AbstractEmitter, Initializable, Random):
+    """A softmax emitter for the case of integer outputs (classes).
+
+    Interprets readout elements as hidden layer vectors, that are passed through
+    an output layer (in the case of language model, the last layer is composed of
+    word embeddings) and a softmax.
+
+    Parameters
+    ----------
+    readout_dim : int
+        The dimension of the readout (hidden representation) given to the
+        emitter.
+    output_dim : int
+        The number of classes to be predicted by the emitter.
+    initial_output : int or a scalar :class:`~theano.Variable`
+        The initial output.
+
+    """
+    def __init__(self, readout_dim, output_dim, initial_output=0, **kwargs):
+        super(FullSoftmaxEmitter, self).__init__(**kwargs)
+
+        self.readout_dim = readout_dim
+        self.output_dim = output_dim
+
+        self.initial_output = initial_output
+
+        self.linear = Linear(input_dim=readout_dim,
+                             output_dim=output_dim,
+                             name='linear')
+
+        self.children = [self.linear]
+
+    @application
+    def probs(self, readouts):
+        energies = self.linear.apply(readouts)
+
+        shape = energies.shape
+        return tensor.nnet.softmax(energies.reshape(
+            (tensor.prod(shape[:-1]), shape[-1]))).reshape(shape)
+
+    @application
+    def emit(self, readouts):
+        probs = self.probs(readouts)
+        batch_size = probs.shape[0]
+        pvals_flat = probs.reshape((batch_size, -1))
+        generated = self.theano_rng.multinomial(pvals=pvals_flat)
+        return generated.reshape(probs.shape).argmax(axis=-1)
+
+    @application
+    def cost(self, readouts, outputs):
+        # WARNING: unfortunately this application method works
+        # just fine when `readouts` and `outputs` have
+        # different dimensions. Be careful!
+        probs = self.probs(readouts)
+        max_output = probs.shape[-1]
+        flat_outputs = outputs.flatten()
+        num_outputs = flat_outputs.shape[0]
+        return -tensor.log(
+            probs.flatten()[max_output * tensor.arange(num_outputs) +
+                            flat_outputs].reshape(outputs.shape))
+
+    @application
+    def initial_outputs(self, batch_size):
+        return self.initial_output * tensor.ones((batch_size,), dtype='int64')
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return 0
+        return super(FullSoftmaxEmitter, self).get_dim(name)
+
+
+class BaseDecoder(Initializable):
     """Decoder of RNNsearch model."""
 
     def __init__(self, vocab_size, embedding_dim, state_dim,
-                 representation_dim, **kwargs):
-        super(Decoder, self).__init__(**kwargs)
+                 representation_dim, emitter_class, **kwargs):
+        super(BaseDecoder, self).__init__(**kwargs)
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         self.state_dim = state_dim
@@ -95,20 +167,28 @@ class Decoder(Initializable):
             attended_dim=representation_dim,
             match_dim=state_dim, name="attention")
 
-        # Initialize the readout, note that SoftmaxEmitter emits -1 for
-        # initial outputs which is used by LookupFeedBackWMT15
+        # Initialize the emitter brick
+        # Note that SoftmaxEmitter emits -1 for initial outputs
+        # which is used by LookupFeedBackWMT15
+        emitter = emitter_class(readout_dim=embedding_dim,
+                                output_dim=vocab_size,
+                                initial_output=-1)
+
+        # Initialize the feedback brick
+        feedback_brick = LookupFeedbackWMT15(vocab_size, embedding_dim)
+
+        # Initialize the readout
         readout = Readout(
             source_names=['states', 'feedback',
                           self.attention.take_glimpses.outputs[0]],
-            readout_dim=self.vocab_size,
-            emitter=SoftmaxEmitter(initial_output=-1),
-            feedback_brick=LookupFeedbackWMT15(vocab_size, embedding_dim),
+            readout_dim=embedding_dim,
+            emitter=emitter,
+            feedback_brick=feedback_brick,
             post_merge=InitializableFeedforwardSequence(
                 [Bias(dim=state_dim, name='maxout_bias').apply,
                  Maxout(num_pieces=2, name='maxout').apply,
                  Linear(input_dim=state_dim / 2, output_dim=embedding_dim,
-                        use_bias=False, name='softmax0').apply,
-                 Linear(input_dim=embedding_dim, name='softmax1').apply]),
+                        use_bias=False, name='softmax0').apply]),
             merged_dim=state_dim)
 
         # Build sequence generator accordingly
@@ -151,3 +231,9 @@ class Decoder(Initializable):
             attended=representation,
             attended_mask=tensor.ones(source_sentence.shape).T,
             glimpses=self.attention.take_glimpses.outputs[0])
+
+
+class FullSoftmaxDecoder(BaseDecoder):
+    def __init__(self, **kwargs):
+        super(FullSoftmaxDecoder, self).__init__(emitter_class=FullSoftmaxEmitter,
+                                                 **kwargs)
