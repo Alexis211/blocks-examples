@@ -20,7 +20,7 @@ dec_embed = 62
 saveto = os.path.join('model_data', 'search_model_cs2en')
 
 # Wheret to save the parameters
-saveto_params = saveto + '_params.pkl'
+saveto_params = os.path.join(saveto, 'params.pkl')
 
 # Optimization related ----------------------------------------------------
 
@@ -82,7 +82,8 @@ unk_token = '<UNK>'
 normalized_bleu = True
 
 # Bleu script that will be used (moses multi-perl in this case)
-bleu_script = None #datadir + 'multi-bleu.perl'
+# bleu_script = None #datadir + 'multi-bleu.perl'
+bleu_script = "/data/lisatmp3/firatorh/turkishParallelCorpora/iwslt14/scripts/multi-bleu.perl"
 
 # Validation set source file
 val_set = datadir + 'newstest2013.tok.cs'
@@ -94,10 +95,10 @@ val_set_grndtruth = datadir + 'newstest2013.tok.en'
 output_val_set = True
 
 # Validation output file
-val_set_out = saveto + '_validation_out.txt'
+val_set_out = os.path.join(saveto, 'validation_out.txt')
 
 # Validation Bleu scores output file
-val_bleu_scores_out = saveto + '_val_bleu_scores.npz'
+val_bleu_scores_out = os.path.join(saveto, 'val_bleu_scores.npz')
 
 # Beam-size
 beam_size = 20
@@ -105,7 +106,10 @@ beam_size = 20
 # Timing/monitoring related -----------------------------------------------
 
 # Averaging over k training batches
-train_monitor_freq = sort_k_batches
+train_monitor_freq = sort_k_batches * 10
+
+# Title of the plot
+plot_title = "Cs-En default"
 
 # Maximum number of updates
 finish_after = 1000000
@@ -123,8 +127,8 @@ sampling_freq = 10
 hook_samples = 1
 
 # Validate bleu after this many updates
-bleu_val_freq = 2000
+bleu_val_freq = 100
 
 # Start bleu validation after this many updates
-val_burn_in = 50000
+val_burn_in = 0
 

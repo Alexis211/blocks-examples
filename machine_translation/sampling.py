@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import logging
 import numpy
 import operator
@@ -105,20 +107,20 @@ class Sampler(SimpleExtension, SamplingBase):
         outputs = outputs.T
         costs = list(costs.T)
 
-        print ""
+        print("")
         for i in range(len(outputs)):
             input_length = self._get_true_length(input_[i], self.src_vocab)
             target_length = self._get_true_length(target_[i], self.trg_vocab)
             sample_length = self._get_true_length(outputs[i], self.trg_vocab)
 
-            print "Input : ", self._idx_to_word(input_[i][:input_length],
-                                                self.src_ivocab)
-            print "Target: ", self._idx_to_word(target_[i][:target_length],
-                                                self.trg_ivocab)
-            print "Sample: ", self._idx_to_word(outputs[i][:sample_length],
-                                                self.trg_ivocab)
-            print "Sample cost: ", costs[i][:sample_length].sum()
-            print ""
+            print("Input : {}".format(self._idx_to_word(input_[i][:input_length],
+                                                self.src_ivocab)))
+            print("Target: {}".format(self._idx_to_word(target_[i][:target_length],
+                                                self.trg_ivocab)))
+            print("Sample: {}".format(self._idx_to_word(outputs[i][:sample_length],
+                                                self.trg_ivocab)))
+            print("Sample cost: {}".format(costs[i][:sample_length].sum()))
+            print("")
 
 
 class BleuValidator(SimpleExtension, SamplingBase):
@@ -137,7 +139,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
         self.config = config
         self.n_best = n_best
         self.track_n_models = track_n_models
-        self.verbose = config.val_set_out if hasattr(config, 'val_set_out') else None
+        self.verbose = config.output_val_set
 
         # Helpers
         self.vocab = data_stream.dataset.dictionary
@@ -151,10 +153,6 @@ class BleuValidator(SimpleExtension, SamplingBase):
         self.beam_search = BeamSearch(samples=samples)
         self.multibleu_cmd = ['perl', self.config.bleu_script,
                               self.config.val_set_grndtruth, '<']
-
-        # Create saving directory if it does not exist
-        if not os.path.exists(self.config.saveto):
-            os.makedirs(self.config.saveto)
 
         if self.config.reload:
             try:
@@ -178,8 +176,8 @@ class BleuValidator(SimpleExtension, SamplingBase):
             return
 
         # Get current model parameters
-        self.model.set_param_values(
-            self.main_loop.model.get_param_values())
+        self.model.set_parameter_values(
+            self.main_loop.model.get_parameter_values())
 
         # Evaluate and save if necessary
         self._save_model(self._evaluate_model())
@@ -225,21 +223,21 @@ class BleuValidator(SimpleExtension, SamplingBase):
                     trans_out = self._idx_to_word(trans_out, self.trg_ivocab)
 
                 except ValueError:
-                    print "Can NOT find a translation for line: {}".format(i+1)
+                    logger.info("Can NOT find a translation for line: {}".format(i+1))
                     trans_out = '<UNK>'
 
                 if j == 0:
                     # Write to subprocess and file if it exists
-                    print >> mb_subprocess.stdin, trans_out
+                    print(trans_out, file=mb_subprocess.stdin)
                     if self.verbose:
-                        print >> ftrans, trans_out
+                        print(trans_out, file=ftrans)
 
             if i != 0 and i % 100 == 0:
-                print "Translated {} lines of validation set...".format(i)
+                logger.info("Translated {} lines of validation set...".format(i))
 
             mb_subprocess.stdin.flush()
 
-        print "Total cost of the validation: {}".format(total_cost)
+        logger.info("Total cost of the validation: {}".format(total_cost))
         self.data_stream.reset()
         if self.verbose:
             ftrans.close()
@@ -247,7 +245,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
         # send end of file, read output.
         mb_subprocess.stdin.close()
         stdout = mb_subprocess.stdout.readline()
-        print "output ", stdout
+        logger.info("output {}".format(stdout))
         out_parse = re.match(r'BLEU = [-.0-9]+', stdout)
         logger.info("Validation Took: {} minutes".format(
             float(time.time() - val_start_time) / 60.))
@@ -256,7 +254,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
         # extract the score
         bleu_score = float(out_parse.group()[6:])
         self.val_bleu_curve.append(bleu_score)
-        print bleu_score
+        logger.info("Bleu score: {}".format(bleu_score))
         mb_subprocess.terminate()
 
         return bleu_score
@@ -275,7 +273,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
             if len(self.best_models) >= self.track_n_models:
                 old_model = self.best_models[0]
                 if old_model.path and os.path.isfile(old_model.path):
-                    logger.info("Deleting old model %s" % old_model.path)
+                    logger.info("Deleting old model {}".format(old_model.path))
                     os.remove(old_model.path)
                 self.best_models.remove(old_model)
 

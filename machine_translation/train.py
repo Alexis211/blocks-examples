@@ -121,6 +121,10 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     logger.info("Building model")
     training_model = Model(cost)
 
+    # Create saving directory if it does not exist
+    if not os.path.exists(self.config.saveto):
+        os.makedirs(self.config.saveto)
+
     # Set extensions
     logger.info("Initializing extensions")
     extensions = [
@@ -156,14 +160,15 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     # Add early stopping based on bleu
     if config.bleu_script is not None:
         logger.info("Building bleu validator")
-        BleuValidator(sampling_input, samples=samples, config=config,
-                      model=search_model, data_stream=dev_stream,
-                      every_n_batches=config.bleu_val_freq)
+        extensions.append(
+            BleuValidator(sampling_input, samples=samples, config=config,
+                          model=search_model, data_stream=dev_stream,
+                          every_n_batches=config.bleu_val_freq))
 
     # Plot cost in bokeh if necessary
     if bokeh:
         extensions.append(
-            Plot('Cs-En', channels=[['decoder_cost_cost']],
+            Plot(config.plot_title, channels=[['decoder_cost_cost']],
                  every_n_batches=config.train_monitor_freq,
                  server_url='http://eos6:5006'))
 
