@@ -39,20 +39,20 @@ class _too_long(object):
                     for sentence in sentence_pair])
 
 # Get helpers
-cs_vocab_file = config['src_vocab']
-en_vocab_file = config['trg_vocab']
-cs_file = config['src_data']
-en_file = config['trg_data']
+cs_vocab_file = config.src_vocab
+en_vocab_file = config.trg_vocab
+cs_file = config.src_data
+en_file = config.trg_data
 
 # Load dictionaries and ensure special tokens exist
 cs_vocab = cPickle.load(open(cs_vocab_file))
 en_vocab = cPickle.load(open(en_vocab_file))
-cs_vocab[config['bos_token']] = 0
-cs_vocab[config['eos_token']] = config['src_vocab_size']
-cs_vocab[config['unk_token']] = config['unk_id']
-en_vocab[config['bos_token']] = 0
-en_vocab[config['eos_token']] = config['trg_vocab_size']
-en_vocab[config['unk_token']] = config['unk_id']
+cs_vocab[config.bos_token] = 0
+cs_vocab[config.eos_token] = config.src_vocab_size
+cs_vocab[config.unk_token] = config.unk_id
+en_vocab[config.bos_token] = 0
+en_vocab[config.eos_token] = config.trg_vocab_size
+en_vocab[config.unk_token] = config.unk_id
 
 # Get text files from both source and target
 cs_dataset = TextFile([cs_file], cs_vocab, None)
@@ -65,18 +65,18 @@ stream = Merge([cs_dataset.get_example_stream(),
 
 # Filter sequences that are too long
 stream = Filter(stream,
-                predicate=_too_long(seq_len=config['seq_len']))
+                predicate=_too_long(seq_len=config.seq_len))
 
 # Replace out of vocabulary tokens with unk token
 stream = Mapping(stream,
-                 _oov_to_unk(src_vocab_size=config['src_vocab_size'],
-                             trg_vocab_size=config['trg_vocab_size'],
-                             unk_id=config['unk_id']))
+                 _oov_to_unk(src_vocab_size=config.src_vocab_size,
+                             trg_vocab_size=config.trg_vocab_size,
+                             unk_id=config.unk_id))
 
 # Build a batched version of stream to read k batches ahead
 stream = Batch(stream,
                iteration_scheme=ConstantScheme(
-                   config['batch_size']*config['sort_k_batches']))
+                   config.batch_size*config.sort_k_batches))
 
 # Sort all samples in the read-ahead batch
 stream = Mapping(stream, SortMapping(_length))
@@ -85,14 +85,14 @@ stream = Mapping(stream, SortMapping(_length))
 stream = Unpack(stream)
 
 # Construct batches from the stream with specified batch size
-stream = Batch(stream, iteration_scheme=ConstantScheme(config['batch_size']))
+stream = Batch(stream, iteration_scheme=ConstantScheme(config.batch_size))
 
 # Pad sequences that are short
 masked_stream = Padding(stream)
 
 # Setup development set stream if necessary
 dev_stream = None
-if 'val_set' in config and config['val_set']:
-    dev_file = config['val_set']
+if hasattr(config, 'val_set') and config.val_set:
+    dev_file = config.val_set
     dev_dataset = TextFile([dev_file], cs_vocab, None)
     dev_stream = DataStream(dev_dataset)

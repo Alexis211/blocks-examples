@@ -28,7 +28,7 @@ class SamplingBase(object):
             return len(seq)
 
     def _oov_to_unk(self, seq):
-        return [x if x < self.config['src_vocab_size'] else self.unk_idx
+        return [x if x < self.config.src_vocab_size else self.unk_idx
                 for x in seq]
 
     def _parse_input(self, line):
@@ -37,7 +37,7 @@ class SamplingBase(object):
         seq = numpy.zeros(seqlen+1, dtype='int64')
         for idx, sx in enumerate(seqin):
             seq[idx] = self.vocab.get(sx, self.unk_idx)
-            if seq[idx] >= self.config['src_vocab_size']:
+            if seq[idx] >= self.config.src_vocab_size:
                 seq[idx] = self.unk_idx
         seq[-1] = self.eos_idx
         return seq
@@ -92,7 +92,7 @@ class Sampler(SimpleExtension, SamplingBase):
 
         # TODO: this is problematic for boundary conditions, eg. last batch
         sample_idx = numpy.random.choice(
-            self.config['batch_size'], self.config['hook_samples'],
+            self.config.batch_size, self.config.hook_samples,
             replace=False)
         src_batch = batch[self.main_loop.data_stream.mask_sources[0]]
         trg_batch = batch[self.main_loop.data_stream.mask_sources[1]]
@@ -137,7 +137,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
         self.config = config
         self.n_best = n_best
         self.track_n_models = track_n_models
-        self.verbose = config.get('val_set_out', None)
+        self.verbose = config.val_set_out if hasattr(config, 'val_set_out') else None
 
         # Helpers
         self.vocab = data_stream.dataset.dictionary
@@ -149,17 +149,16 @@ class BleuValidator(SimpleExtension, SamplingBase):
         self.best_models = []
         self.val_bleu_curve = []
         self.beam_search = BeamSearch(samples=samples)
-        self.multibleu_cmd = ['perl', self.config['bleu_script'],
-                              self.config['val_set_grndtruth'], '<']
+        self.multibleu_cmd = ['perl', self.config.bleu_script,
+                              self.config.val_set_grndtruth, '<']
 
         # Create saving directory if it does not exist
-        if not os.path.exists(self.config['saveto']):
-            os.makedirs(self.config['saveto'])
+        if not os.path.exists(self.config.saveto):
+            os.makedirs(self.config.saveto)
 
-        if self.config['reload']:
+        if self.config.reload:
             try:
-                bleu_score = numpy.load(os.path.join(self.config['saveto'],
-                                        'val_bleu_scores.npz'))
+                bleu_score = numpy.load(self.config.val_bleu_scores_out)
                 self.val_bleu_curve = bleu_score['bleu_scores'].tolist()
 
                 # Track n best previous bleu scores
@@ -175,7 +174,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
 
         # Track validation burn in
         if self.main_loop.status['iterations_done'] <= \
-                self.config['val_burn_in']:
+                self.config.val_burn_in:
             return
 
         # Get current model parameters
@@ -199,7 +198,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
             self.trg_ivocab = {v: k for k, v in trg_vocab.items()}
 
         if self.verbose:
-            ftrans = open(self.config['val_set_out'], 'w')
+            ftrans = open(self.config.val_set_out, 'w')
 
         for i, line in enumerate(self.data_stream.get_epoch_iterator()):
             """
@@ -207,7 +206,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
             """
 
             seq = self._oov_to_unk(line[0])
-            input_ = numpy.tile(seq, (self.config['beam_size'], 1))
+            input_ = numpy.tile(seq, (self.config.beam_size, 1))
 
             # draw sample, checking to ensure we don't get an empty string back
             trans, costs = \
@@ -270,7 +269,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
 
     def _save_model(self, bleu_score):
         if self._is_valid_to_save(bleu_score):
-            model = ModelInfo(bleu_score, self.config['saveto'])
+            model = ModelInfo(bleu_score, self.config.saveto)
 
             # Manage n-best model list first
             if len(self.best_models) >= self.track_n_models:
@@ -288,7 +287,7 @@ class BleuValidator(SimpleExtension, SamplingBase):
             logger.info("Saving new model {}".format(model.path))
             numpy.savez(model.path, **self.main_loop.model.get_param_values())
             numpy.savez(
-                os.path.join(self.config['saveto'], 'val_bleu_scores.npz'),
+                self.config.val_bleu_scores_out,
                 bleu_scores=self.val_bleu_curve)
             signal.signal(signal.SIGINT, s)
 
