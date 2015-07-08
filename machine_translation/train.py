@@ -39,7 +39,7 @@ from blocks.select import Selector
 
 from sampling import BleuValidator, Sampler
 
-from ext_saveload import SaveLoadParams
+from saveload import CheckpointNMT, LoadNMT
 
 
 logger = logging.getLogger(__name__)
@@ -131,11 +131,8 @@ def main(config, tr_stream, dev_stream, bokeh=False):
         FinishAfter(after_n_batches=config.finish_after),
         TrainingDataMonitoring([cost], every_n_batches=config.train_monitor_freq),
         Printing(every_n_batches=config.train_monitor_freq),
-        SaveLoadParams(path=config.saveto_params,
-                       model=training_model,
-                       every_n_batches=config.save_freq,
-                       after_training=True,
-                       before_training=config.reload)
+        CheckpointNMT(config.saveto,
+                      every_n_batches=config.save_freq)
     ]
 
     # Set up beam search and sampling computation graphs if necessary
@@ -164,6 +161,10 @@ def main(config, tr_stream, dev_stream, bokeh=False):
             BleuValidator(sampling_input, samples=samples, config=config,
                           model=search_model, data_stream=dev_stream,
                           every_n_batches=config.bleu_val_freq))
+
+    # Reload model if necessary
+    if config.reload:
+        extensions.append(LoadNMT(config.saveto))
 
     # Plot cost in bokeh if necessary
     if bokeh:

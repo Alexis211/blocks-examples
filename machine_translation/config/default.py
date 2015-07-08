@@ -21,9 +21,6 @@ dec_embed = 62
 # Where to save model, this corresponds to 'prefix' in groundhog
 saveto = os.path.join('model_data', 'search_model_cs2en')
 
-# Wheret to save the parameters
-saveto_params = os.path.join(saveto, 'params.pkl')
-
 # Optimization related ----------------------------------------------------
 
 # Batch size

@@ -1,5 +1,7 @@
 from theano import tensor
 
+from blocks.roles import add_role, WEIGHT
+
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import GatedRecurrent
 from blocks.bricks.sequence_generators import (
@@ -9,6 +11,8 @@ from blocks.bricks.base import application
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks import (Tanh, Maxout, Linear, FeedforwardSequence,
                            Bias, Initializable, MLP)
+
+from blocks.utils import shared_floatx_nans
 
 # Helper class
 class InitializableFeedforwardSequence(FeedforwardSequence, Initializable):
@@ -53,16 +57,20 @@ class GRUInitialState(GatedRecurrent):
         self.children.append(self.initial_transformer)
 
     @application
-    def initial_state(self, state_name, batch_size, *args, **kwargs):
+    def initial_states(self, batch_size, *args, **kwargs):
         attended = kwargs['attended']
-        if state_name == 'states':
-            initial_state = self.initial_transformer.apply(
-                attended[0, :, -self.attended_dim:])
-            return initial_state
-        dim = self.get_dim(state_name)
-        if dim == 0:
-            return tensor.zeros((batch_size,))
-        return tensor.zeros((batch_size, dim))
+        initial_state = self.initial_transformer.apply(
+            attended[0, :, -self.attended_dim:])
+        return initial_state
+
+    def _allocate(self):
+        self.parameters.append(shared_floatx_nans((self.dim, self.dim),
+                               name='state_to_state'))
+        self.parameters.append(shared_floatx_nans((self.dim, 2 * self.dim),
+                               name='state_to_gates'))
+        for i in range(2):
+            if self.parameters[i]:
+                add_role(self.parameters[i], WEIGHT)
 
 
 class Decoder(Initializable):
