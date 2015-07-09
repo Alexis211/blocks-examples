@@ -22,6 +22,8 @@ import pprint
 import os
 import sys
 
+from operator import mul
+
 from collections import Counter
 from theano import tensor
 from toolz import merge
@@ -39,6 +41,8 @@ from blocks.select import Selector
 from blocks.roles import has_roles
 
 from model import NO_GRADIENT
+
+from model.clustering import ClusteredSoftmaxEmitter, ReclusterExtension
 
 try:
     from blocks.extras.extensions.plot import Plot
@@ -131,7 +135,9 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     logger.info("Parameter shapes: ")
     for shape, count in Counter(shapes).most_common():
         logger.info('    {:15}: {}'.format(shape, count))
-    logger.info("Total number of parameters: {}".format(len(shapes)))
+    total_params = sum(reduce(mul, shape, 1) for shape in shapes)
+    logger.info("Total number of parameters: {} parameters in {} matrices" \
+                .format(total_params, len(shapes)))
 
     # Print parameter names
     enc_dec_param_dict = merge(Selector(encoder).get_parameters(),
@@ -172,6 +178,17 @@ def main(config, tr_stream, dev_stream, bokeh=False):
             bricks=[decoder.sequence_generator], name="outputs")(
                 ComputationGraph(generated[1]))  # generated[1] is next_outputs
 
+    # Reload model if necessary
+    if config.reload:
+        extensions.append(LoadNMT(config.saveto))
+
+    # If we use a clustering approach, add reclustering extension
+    if isinstance(decoder.emitter, ClusteredSoftmaxEmitter):
+        extensions.append(
+            ReclusterExtension(decoder.emitter,
+                               before_training=True,
+                               every_n_batches=config.recluster_freq))
+
     # Add sampling
     if config.hook_samples >= 1:
         logger.info("Building sampler")
@@ -186,10 +203,6 @@ def main(config, tr_stream, dev_stream, bokeh=False):
             BleuValidator(sampling_input, samples=samples, config=config,
                           model=search_model, data_stream=dev_stream,
                           every_n_batches=config.bleu_val_freq))
-
-    # Reload model if necessary
-    if config.reload:
-        extensions.append(LoadNMT(config.saveto))
 
     # Plot cost in bokeh if necessary
     if bokeh:

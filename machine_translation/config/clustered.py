@@ -1,6 +1,6 @@
 import os
 
-from blocks.algorithms import AdaDelta
+from blocks.algorithms import Scale
 
 from model.encoder import BidirectionalEncoder as Encoder
 from model.clustering import ClusteredSoftmaxDecoder as Decoder
@@ -22,10 +22,12 @@ dec_embed = 62
 saveto = os.path.join('model_data', 'search_model_cs2en_clustered')
 
 # Clustering related
-num_clusters = 200
-cluster_max_size = 600
+num_clusters = 100
+cluster_max_size = 300
 emit_k_best_clusters = 2
 cost_k_best_clusters = 1
+
+recluster_freq = 10
 
 # Params for the MIPS -> MCSS transform used in the sph. kmeans clustering
 mips_to_mcss_params = {'m': 3, 'U': 0.85}
@@ -33,13 +35,13 @@ mips_to_mcss_params = {'m': 3, 'U': 0.85}
 # Optimization related ----------------------------------------------------
 
 # Batch size
-batch_size = 80
+batch_size = 10
 
 # This many batches will be read ahead and sorted
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = AdaDelta()
+step_rule = Scale(learning_rate=0.01)
 
 # Gradient clipping threshold
 step_clipping = 1
@@ -76,7 +78,7 @@ trg_data = datadir + 'all.tok.clean.shuf.cs-en.en'
 
 # Source and target vocabulary sizes
 src_vocab_size = 40000
-trg_vocab_size = 40000
+trg_vocab_size = 10000
 
 # Special tokens and indexes
 unk_id = 1
@@ -114,7 +116,7 @@ beam_size = 20
 # Timing/monitoring related -----------------------------------------------
 
 # Averaging over k training batches
-train_monitor_freq = sort_k_batches * 10
+train_monitor_freq = 1
 
 # Title of the plot
 plot_title = "Cs-En clustered"
@@ -126,10 +128,10 @@ finish_after = 1000000
 reload = True
 
 # Save model after this many updates
-save_freq = train_monitor_freq
+save_freq = train_monitor_freq * 1000
 
 # Show samples from model after this many updates
-sampling_freq = 10
+sampling_freq = 1
 
 # Show this many samples at each sampling
 hook_samples = 1
