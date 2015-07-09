@@ -23,8 +23,14 @@ from blocks.extensions.monitoring import (DataStreamMonitoring,
                                           TrainingDataMonitoring)
 from blocks.main_loop import MainLoop
 
+try:
+    from blocks.extras.extensions.plot import Plot
+    BLOCKS_EXTRAS_AVAILABLE = True
+except:
+    BLOCKS_EXTRAS_AVAILABLE = False
 
-def main(save_to, num_epochs, bokeh=False):
+
+def main(save_to, num_epochs):
     mlp = MLP([Tanh(), Softmax()], [784, 100, 10],
               weights_init=IsotropicGaussian(0.01),
               biases_init=Constant(0))
@@ -65,6 +71,14 @@ def main(save_to, num_epochs, bokeh=False):
                   Checkpoint(save_to),
                   Printing()]
 
+    if BLOCKS_EXTRAS_AVAILABLE:
+        extensions.append(Plot(
+            'MNIST example',
+            channels=[
+                ['test_final_cost',
+                 'test_misclassificationrate_apply_error_rate'],
+                ['train_total_gradient_norm']]))
+
     main_loop = MainLoop(
         algorithm,
         Flatten(
@@ -88,6 +102,6 @@ if __name__ == "__main__":
                         help=("Destination to save the state of the training "
                               "process."))
     parser.add_argument("--bokeh", action='store_true',
-                        help="Set if you want to use Bokeh ")
+                        help="Set if you want to use Bokeh for Plotting ")
     args = parser.parse_args()
     main(args.save_to, args.num_epochs, args.bokeh)
