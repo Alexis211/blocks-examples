@@ -36,6 +36,9 @@ from blocks.initialization import IsotropicGaussian, Orthogonal, Constant
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.select import Selector
+from blocks.roles import has_roles
+
+from model import NO_GRADIENT
 
 try:
     from blocks.extras.extensions.plot import Plot
@@ -66,10 +69,23 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     encoder = config.Encoder(vocab_size=config.src_vocab_size,
                              embedding_dim=config.enc_embed,
                              state_dim=config.enc_nhids)
+
+    if hasattr(config, 'num_clusters'):
+        clustering_args = {}
+        clustering_args['num_clusters'] = config.num_clusters
+        clustering_args['cluster_max_size'] = config.cluster_max_size
+        clustering_args['emit_k_best_clusters'] = config.emit_k_best_clusters
+        clustering_args['cost_k_best_clusters'] = config.cost_k_best_clusters
+        clustering_args['mips_to_mcss_params'] = config.mips_to_mcss_params
+        decoder_extra_args = {'clustering_args': clustering_args}
+    else:
+        decoder_extra_args = {}
+
     decoder = config.Decoder(vocab_size=config.trg_vocab_size,
                              embedding_dim=config.dec_embed,
                              state_dim=config.dec_nhids,
-                             representation_dim=config.enc_nhids * 2)
+                             representation_dim=config.enc_nhids * 2,
+                             **decoder_extra_args)
     cost = decoder.cost(
         encoder.apply(source_sentence, source_sentence_mask),
         source_sentence_mask, target_sentence, target_sentence_mask)
@@ -185,8 +201,9 @@ def main(config, tr_stream, dev_stream, bokeh=False):
 
     # Set up training algorithm
     logger.info("Initializing training algorithm")
+    parameters = [p for p in cg.parameters if not has_roles(p, [NO_GRADIENT])]
     algorithm = GradientDescent(
-        cost=cost, parameters=cg.parameters,
+        cost=cost, parameters=parameters,
         step_rule=CompositeRule([StepClipping(config.step_clipping),
                                  config.step_rule])
     )

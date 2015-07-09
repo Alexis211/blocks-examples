@@ -77,7 +77,7 @@ class BaseDecoder(Initializable):
     """Decoder of RNNsearch model."""
 
     def __init__(self, vocab_size, embedding_dim, state_dim,
-                 representation_dim, emitter_class, **kwargs):
+                 representation_dim, emitter, **kwargs):
         super(BaseDecoder, self).__init__(**kwargs)
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
@@ -98,9 +98,7 @@ class BaseDecoder(Initializable):
         # Initialize the emitter brick
         # Note that SoftmaxEmitter emits -1 for initial outputs
         # which is used by LookupFeedBackWMT15
-        self.emitter = emitter_class(readout_dim=embedding_dim,
-                                     output_dim=vocab_size,
-                                     initial_output=-1)
+        self.emitter = emitter
 
         # Initialize the feedback brick
         self.feedback_brick = LookupFeedbackWMT15(vocab_size, embedding_dim)
@@ -238,51 +236,10 @@ class FullSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
 class FullSoftmaxDecoder(BaseDecoder):
     def __init__(self, **kwargs):
-        super(FullSoftmaxDecoder, self).__init__(emitter_class=FullSoftmaxEmitter,
+        emitter = FullSoftmaxemitter(readout_dim=kwargs['embedding_dim'],
+                                     output_dim=kwargs['vocab_size'],
+                                     initial_output=-1)
+        super(FullSoftmaxDecoder, self).__init__(emitter=emitter,
                                                  **kwargs)
-
-
-# ------------------------------------------------------------------
-#        Model with Clustering-based Approximate Softmax Output
-# ------------------------------------------------------------------
-
-
-class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
-    def __init__(self, readout_dim, output_dim, initial_output=0, **kwargs):
-        super(FullSoftmaxEmitter, self).__init__(**kwargs)
-
-        self.readout_dim = readout_dim
-        self.output_dim = output_dim
-
-        self.initial_output = initial_output
-
-        # TODO
-
-    @application
-    def emit(self, readouts):
-        # TODO
-        pass
-
-    @application
-    def cost(self, readouts, outputs):
-        # TODO
-        pass
-
-    @application
-    def initial_outputs(self, batch_size):
-        return self.initial_output * tensor.ones((batch_size,), dtype='int64')
-
-    def get_dim(self, name):
-        if name == 'outputs':
-            return 0
-        return super(FullSoftmaxEmitter, self).get_dim(name)
-
-
-class ClusteredSoftmaxDecoder(BaseDecoder):
-    def __init__(self, **kwargs):
-        super(ClusteredSoftmaxDecoder, self).__init__(
-                emitter_class=ClusteredSoftmaxEmitter,
-                **kwargs)
-
 
 
