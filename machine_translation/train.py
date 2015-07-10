@@ -184,8 +184,9 @@ def main(config, tr_stream, dev_stream, bokeh=False):
 
     # If we use a clustering approach, add reclustering extension
     if isinstance(decoder.emitter, ClusteredSoftmaxEmitter):
-        extensions.append(
-            ReclusterExtension(decoder.emitter,
+        extensions.append(ReclusterExtension(
+                               emitter=decoder.emitter,
+                               max_iters=config.recluster_max_iters,
                                before_training=True,
                                every_n_batches=config.recluster_freq))
 

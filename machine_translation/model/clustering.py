@@ -119,7 +119,9 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         add_role(self.reverse_item, NO_GRADIENT)
         self.parameters = [self.W, self.b,
                            self.centroids,
-                           self.item_cluster, self.item_pos_in_cluster,
+                           self.cluster_sizes,
+                           self.item_cluster,
+                           self.item_pos_in_cluster,
                            self.reverse_item]
 
     def _initialize(self):
@@ -144,16 +146,16 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         self.cluster_sizes.set_value(cluster_sizes)
 
         # Fill classes
-        i = 0
+        beg = 0
         item_cluster = self.item_cluster.get_value()
         item_pos_in_cluster = self.item_pos_in_cluster.get_value()
         reverse_item = self.reverse_item.get_value()
         for c in range(self.num_clusters):
-            beg = i
-            end = i + cluster_sizes[c]
+            end = beg + cluster_sizes[c]
             item_cluster[beg:end] = c
             item_pos_in_cluster[beg:end] = range(end - beg)
             reverse_item[c, 0:(end-beg)] = range(beg, end)
+            beg = end
         self.item_cluster.set_value(item_cluster)
         self.item_pos_in_cluster.set_value(item_pos_in_cluster)
         self.reverse_item.set_value(reverse_item)
@@ -168,7 +170,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         return tensor.lt(tensor.arange(self.biggest_cluster_size, dtype='int32')[None, :],
                          cluster_sizes[:, None])
 
-    def do_kmeans(self, max_iters=-1):
+    def compile_kmeans_fun(self):
         # How To do k-means :
         # - Caluclate MIPS->MCSS version of W, b
         # - Recalculate centroids (doesn't even need a scan)
@@ -178,85 +180,119 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # - Loop
         # - Try to do the previous algorithm without ever using item_cluster and
         #   item_pos_in_cluster ; reconstruct them at the end manually with a for loop
-        
+        #   (see code for k_means)
+
+        logger.info("Compiling k-means function...")
+
         # dimension of a transformed vector
         tdim = self.readout_dim + 1 + self.mips_to_mcss_params['m']
 
+        # Apply MIPS->MCSS transform to W and b
+        tvecs = mips_to_mcss_with_bias(
+                   self.W.reshape((self.num_clusters * self.biggest_cluster_size,
+                                   self.readout_dim)),
+                   self.b.reshape((self.num_clusters * self.biggest_cluster_size,)),
+                   **self.mips_to_mcss_params)
+        tvecs = tvecs.reshape((self.num_clusters, self.biggest_cluster_size, tdim))
+
+        # Generate a mask for all the classes (according to previous clustering)
+        class_mask = self.class_mask(self.cluster_sizes)
+                            
+        # Calculate new centroids
+        new_sums = (tvecs * class_mask[:, :, None]).sum(axis=1)
+        new_norms = tensor.sqrt((new_sums ** 2).sum(axis=1, keepdims=True))
+        new_centroids = new_sums / (new_norms + tensor.eq(new_norms, 0))
+
+        # Calculate new best cluster for the points, storing them in the
+        # same fashion as the W and b are already stored (ie according to
+        # the old clustering)
+        new_bestclus = tensor.dot(tvecs, new_centroids.T).argmax(axis=2) * class_mask \
+                        + (class_mask - 1)
+
+        # Calculate number of items that change cluster (we stop when this is zero)
+        num_changed = tensor.sum(tensor.neq(new_bestclus,
+                                            tensor.arange(self.num_clusters)[:, None])
+                                    * class_mask)
+
+        # Flatten all the data, ie undo the clustering (some places are still unused,
+        # there is a mask). This is simpler for when we do the eq-nonzero thing in the
+        # scan later on
+        new_bestclus_f = new_bestclus.reshape((self.num_clusters * self.biggest_cluster_size,))
+        W_f = self.W.reshape((self.num_clusters * self.biggest_cluster_size, self.readout_dim))
+        b_f = self.b.reshape((self.num_clusters * self.biggest_cluster_size,))
+        reverse_item_f = self.reverse_item.reshape((self.num_clusters * self.biggest_cluster_size,))
+
+
+        def build_cluster(i):
+            # Find the indices (in the flattenned version) of all the items belonging
+            # to cluster i according to the new clustering
+            idxs = tensor.eq(new_bestclus_f, i).nonzero()[0]
+
+            # Calculate how much padding must be added to the cluster
+            npads = self.cluster_max_size - idxs.shape[0]
+
+            # Return new cluster information: W, b, identity of selected item, and cluster size
+            return [tensor.concatenate(
+                            [mtx, tensor.zeros_like(mtx[0:1].repeat(axis=0, repeats=npads))],
+                            axis=0)
+                    for mtx in [W_f[idxs], b_f[idxs], reverse_item_f[idxs]]] + [idxs.shape[0]]
+        [new_W, new_b, new_reverse_item, new_cluster_sizes], _ = \
+                theano.map(build_cluster,
+                           sequences=[tensor.arange(self.num_clusters)])
+
+        # Trim new clustering data to save time & space
+        new_max_clus_size = new_cluster_sizes.max()
+        new_W = new_W[:, :new_max_clus_size, :]
+        new_b = new_b[:, :new_max_clus_size]
+        new_reverse_item = new_reverse_item[:, :new_max_clus_size]
+
+        # Function that does one step of clustering and returns the number of items that 
+        # have changed clusters
+        self.kmeans_fun = theano.function(
+                              inputs=[],
+                              outputs=[num_changed, new_max_clus_size],
+                              updates=[
+                                (self.W, new_W),
+                                (self.b, new_b),
+                                (self.reverse_item, new_reverse_item),
+                                (self.centroids, new_centroids),
+                                (self.cluster_sizes, tensor.cast(new_cluster_sizes, 'int32')),
+                              ])
+        logger.info("Done compiling k-means function")
+
+    def rebuild_reverse_item_idx(self):
+        logger.info("Rebuilding reverse_item index...")
+
+        item_cluster = self.item_cluster.get_value()
+        item_pos_in_cluster = self.item_pos_in_cluster.get_value()
+        reverse_item = -numpy.ones(self.b.get_value().shape, dtype='int32')
+
+        for i in range(self.output_dim):
+            reverse_item[item_cluster[i], item_pos_in_cluster[i]] = i
+
+        self.reverse_item.set_value(reverse_item)
+
+    def rebuild_item_idx(self):
+        logger.info("Rebuilding item_culster,item_pos_in_cluster index...")
+
+        cluster_sizes = self.cluster_sizes.get_value()
+        reverse_item = self.reverse_item.get_value()
+        
+        item_cluster = -numpy.ones_like(self.item_cluster.get_value())
+        item_pos_in_cluster = -numpy.ones_like(self.item_pos_in_cluster.get_value())
+
+        for c in range(self.num_clusters):
+            for i in range(cluster_sizes[c]):
+                item = reverse_item[c, i]
+                item_cluster[item] = c
+                item_pos_in_cluster[item] = i
+
+        self.item_cluster.set_value(item_cluster)
+        self.item_pos_in_cluster.set_value(item_pos_in_cluster)
+
+    def do_kmeans(self, max_iters=None):
         if self.kmeans_fun == None:
-            logger.info("Compiling k-means function...")
-
-            # Apply MIPS->MCSS transform to W and b
-            tvecs = mips_to_mcss_with_bias(
-                       self.W.reshape((self.num_clusters * self.biggest_cluster_size,
-                                       self.readout_dim)),
-                       self.b.reshape((self.num_clusters * self.biggest_cluster_size,)),
-                       **self.mips_to_mcss_params)
-            tvecs = tvecs.reshape((self.num_clusters, self.biggest_cluster_size, tdim))
-
-            # Generate a mask for all the classes (according to previous clustering)
-            class_mask = self.class_mask(self.cluster_sizes)
-                                
-            # Calculate new centroids
-            new_sums = (tvecs * class_mask[:, :, None]).sum(axis=1)
-            new_norms = tensor.sqrt((new_sums ** 2).sum(axis=1, keepdims=True))
-            new_centroids = new_sums / (new_norms + tensor.eq(new_norms, 0))
-
-            # Calculate new best cluster for the points, storing them in the
-            # same fashion as the W and b are already stored (ie according to
-            # the old clustering)
-            new_bestclus = tensor.dot(tvecs, new_centroids.T).argmax(axis=2) * class_mask \
-                            + (class_mask - 1)
-
-            # Calculate number of items that change cluster (we stop when this is zero)
-            num_changed = tensor.sum(tensor.neq(new_bestclus,
-                                                tensor.arange(self.num_clusters)[:, None])
-                                        * class_mask)
-
-            # Flatten all the data, ie undo the clustering (some places are still unused,
-            # there is a mask). This is simpler for when we do the eq-nonzero thing in the
-            # scan later on
-            new_bestclus_f = new_bestclus.reshape((self.num_clusters * self.biggest_cluster_size,))
-            W_f = self.W.reshape((self.num_clusters * self.biggest_cluster_size, self.readout_dim))
-            b_f = self.b.reshape((self.num_clusters * self.biggest_cluster_size,))
-            reverse_item_f = self.reverse_item.reshape((self.num_clusters * self.biggest_cluster_size,))
-
-
-            def build_cluster(i):
-                # Find the indices (in the flattenned version) of all the items belonging
-                # to cluster i according to the new clustering
-                idxs = tensor.eq(new_bestclus_f, i).nonzero()[0]
-
-                # Calculate how much padding must be added to the cluster
-                npads = self.cluster_max_size - idxs.shape[0]
-
-                # Return new cluster information: W, b, identity of selected item, and cluster size
-                return [tensor.concatenate(
-                                [mtx, tensor.zeros_like(mtx[0:1].repeat(axis=0, repeats=npads))],
-                                axis=0)
-                        for mtx in [W_f[idxs], b_f[idxs], reverse_item_f[idxs]]] + [idxs.shape[0]]
-            [new_W, new_b, new_reverse_item, new_cluster_sizes], _ = \
-                    theano.map(build_cluster,
-                               sequences=[tensor.arange(self.num_clusters)])
-
-            # Trim new clustering data to save time & space
-            new_max_clus_size = new_cluster_sizes.max()
-            new_W = new_W[:, :new_max_clus_size, :]
-            new_b = new_b[:, :new_max_clus_size]
-            new_reverse_item = new_reverse_item[:, :new_max_clus_size]
-
-            # Function that does one step of clustering and returns the number of items that 
-            # have changed clusters
-            self.kmeans_fun = theano.function(
-                                  inputs=[],
-                                  outputs=[num_changed, new_max_clus_size],
-                                  updates=[
-                                    (self.W, new_W),
-                                    (self.b, new_b),
-                                    (self.reverse_item, new_reverse_item),
-                                    (self.centroids, new_centroids),
-                                    (self.cluster_sizes, tensor.cast(new_cluster_sizes, 'int32')),
-                                  ])
-            logger.info("Done compiling k-means function")
+            self.compile_kmeans_fun()
 
         # Now we can do the actual k-means: loop until we're done
         it = 0
@@ -266,21 +302,12 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
             logger.info("k-means iteration #{} : {} changed, biggest cluster is {}"
                     .format(it, num_ch, new_max_clus_size))
             if num_ch == 0: break
-            if max_iters > 0 and it >= max_iters:
+            if max_iters is not None and it >= max_iters:
                 break
 
         # Rebuild item_cluster and item_pos_in_cluster
-        item_cluster = self.item_cluster.get_value()
-        item_pos_in_cluster = self.item_pos_in_cluster.get_value()
-        cluster_sizes = self.cluster_sizes.get_value()
-        reverse_item = self.reverse_item.get_value()
-        for c in range(self.num_clusters):
-            for i in range(cluster_sizes[c]):
-                item = reverse_item[c, i]
-                item_cluster[item] = c
-                item_pos_in_cluster[item] = i
-        self.item_cluster.set_value(item_cluster)
-        self.item_pos_in_cluster.set_value(item_pos_in_cluster)
+        self.rebuild_item_idx()
+
 
     @application
     def emit(self, readouts):
@@ -342,7 +369,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         best_clus_nitems = self.cluster_sizes[best_clus.flatten()].reshape(best_clus.shape)
 
         # Find the target cluster and corresponding number of items
-        target_clus = self.item_cluster[outputs.flatten()][:, None]
+        target_clus = self.item_cluster[outputs][:, None]
         target_clus_nitems = self.cluster_sizes[target_clus.flatten()].reshape(target_clus.shape)
 
         # Sample a random cluster with the size of the cluster as probability
@@ -355,14 +382,19 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
         # Affect a weight to random cluster to account for the fact that it represents
         # ALL the items that were not selected either as target or as best match
-        random_clus_weights = (self.output_dim - best_clus_nitems.sum(axis=1, keepdims=True)
-                                               - target_clus_nitems) / random_clus_nitems
+        random_clus_weights = tensor.cast(self.output_dim
+                                            - best_clus_nitems.sum(axis=1, keepdims=True)
+                                            - target_clus_nitems,
+                                          dtype=theano.config.floatX) \
+                              / tensor.cast(random_clus_nitems, dtype=theano.config.floatX)
 
         # Concatenate all selected clusters into a single cluster choice matrix.
         # The target cluster is always first in this matrix so that extracting the
         # target element is always a straightforward process (see return at end of function)
         selected_clus = tensor.concatenate([target_clus, random_clus, best_clus], axis=1)
         selected_clus = theano.gradient.disconnected_grad(selected_clus)
+
+        # selected_clus = theano.printing.Print("selected_clus")(selected_clus)
 
         flat_shape = (batch_size,
                       selected_clus.shape[1] * self.biggest_cluster_size)
@@ -380,14 +412,20 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # and best match), by setting the weight to zero for the extra occurences.
         # The first cluster (the target cluster) always keeps its weight of 1.
         def mask_duplicate_cluster(i):
-            clus_eq = tensor.eq(selected_clus[:, i][:, None], selected_clus[:, :i])
-            already_exists = clus_eq.any(axis=1)
             w = weights_by_cluster[:, i]
-            return tensor.switch(already_exists, w.zeros_like(), w)
-        weights_by_cluster, _ = theano.map(mask_duplicate_cluster,
-                                           sequences=tensor.arange(weights_by_cluster.shape[1]))
+            if i == 0:
+                return w[None, :]
+            else:
+                clus_eq = tensor.eq(selected_clus[:, i][:, None], selected_clus[:, :i])
+                already_exists = clus_eq.any(axis=1)
+                return tensor.switch(already_exists, w.zeros_like(), w)[None, :]
+        weights_by_cluster = tensor.concatenate(map(mask_duplicate_cluster,
+                                                    range(2 + self.cost_k_best_clusters)),
+                                                axis=0)
         weights_by_cluster = weights_by_cluster.T
         weights_by_cluster = theano.gradient.disconnected_grad(weights_by_cluster)
+
+        # weights_by_cluster = theano.printing.Print("weights_by_cluster")(weights_by_cluster)
 
         # Calculate a weight matrix for each individual element of the selected clusters
         # by combining the cluster-specific weights and a mask for the unused items
@@ -399,21 +437,35 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                   * weights_by_cluster[:, :, None]
         weights = weights.reshape(flat_shape)
 
+        # weights = theano.printing.Print("weights")(weights)
+
+        W = self.W
+        # W = theano.printing.Print("W")(W)
+        b = self.b
+        # b = theano.printing.Print("b")(b)
+        # readouts = theano.printing.Print('readouts')(readouts)
+
         # Calculates energies and corresponding softmax probabilities
-        energies = sparse_block_dot(self.W[None, :, :, :].dimshuffle(0, 1, 3, 2),
+        energies = sparse_block_dot(W[None, :, :, :].dimshuffle(0, 1, 3, 2),
                                     readouts[:, None, :],
                                     tensor.zeros((batch_size, 1), dtype='int32'),
-                                    self.b,
+                                    b,
                                     selected_clus)
         energies = energies.reshape(flat_shape)
 
+        # energies = theano.printing.Print("energies")(energies)
+
         probs = weighted_softmax(energies, weights)
         probs = probs.reshape(final_shape)
+
+        # probs = theano.printing.Print("probs")(probs)
 
         # Get probabilities of the targets
         target_prob = probs[tensor.arange(batch_size),
                             tensor.zeros((batch_size,), dtype='int32'),
                             self.item_pos_in_cluster[outputs]].reshape(outputs_orig_shape)
+
+        # target_prob = theano.printing.Print("target_prob")(target_prob)
 
         # Return log likelihood
         return -tensor.log(target_prob)
@@ -440,10 +492,18 @@ class ClusteredSoftmaxDecoder(BaseDecoder):
 
 
 class ReclusterExtension(SimpleExtension):
-    def __init__(self, emitter, **kwargs):
-        super(ReclusterExtension, self).__init__(**kwargs)
+    def __init__(self, emitter, max_iters, **kwargs):
+        kwargs.setdefault("on_resumption", True)
+
         self.emitter = emitter
+        self.max_iters = max_iters
+
+        super(ReclusterExtension, self).__init__(**kwargs)
 
     def do(self, callback_name, *args):
-        self.emitter.do_kmeans()
+        logger.info("ReclusterExtension.{}".format(callback_name))
+        if callback_name == 'on_resumption' or callback_name == 'before_training':
+            self.emitter.rebuild_reverse_item_idx()
+        if callback_name != 'on_resumption':
+            self.emitter.do_kmeans(max_iters=self.max_iters)
 

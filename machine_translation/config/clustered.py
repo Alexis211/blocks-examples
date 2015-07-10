@@ -22,12 +22,13 @@ dec_embed = 62
 saveto = os.path.join('model_data', 'search_model_cs2en_clustered')
 
 # Clustering related
-num_clusters = 100
-cluster_max_size = 300
+num_clusters = 200
+cluster_max_size = 600
 emit_k_best_clusters = 2
-cost_k_best_clusters = 1
+cost_k_best_clusters = 2
 
-recluster_freq = 10
+recluster_freq = 48
+recluster_max_iters = 20
 
 # Params for the MIPS -> MCSS transform used in the sph. kmeans clustering
 mips_to_mcss_params = {'m': 3, 'U': 0.85}
@@ -35,13 +36,13 @@ mips_to_mcss_params = {'m': 3, 'U': 0.85}
 # Optimization related ----------------------------------------------------
 
 # Batch size
-batch_size = 10
+batch_size = 80
 
 # This many batches will be read ahead and sorted
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = Scale(learning_rate=0.01)
+step_rule = Scale(learning_rate=0.1)
 
 # Gradient clipping threshold
 step_clipping = 1
@@ -78,7 +79,7 @@ trg_data = datadir + 'all.tok.clean.shuf.cs-en.en'
 
 # Source and target vocabulary sizes
 src_vocab_size = 40000
-trg_vocab_size = 10000
+trg_vocab_size = 40000
 
 # Special tokens and indexes
 unk_id = 1
@@ -116,7 +117,7 @@ beam_size = 20
 # Timing/monitoring related -----------------------------------------------
 
 # Averaging over k training batches
-train_monitor_freq = 1
+train_monitor_freq = sort_k_batches * 10
 
 # Title of the plot
 plot_title = "Cs-En clustered"
@@ -128,10 +129,10 @@ finish_after = 1000000
 reload = True
 
 # Save model after this many updates
-save_freq = train_monitor_freq * 1000
+save_freq = train_monitor_freq * 10
 
 # Show samples from model after this many updates
-sampling_freq = 1
+sampling_freq = train_monitor_freq
 
 # Show this many samples at each sampling
 hook_samples = 1
