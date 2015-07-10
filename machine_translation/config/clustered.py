@@ -126,7 +126,7 @@ plot_title = "Cs-En clustered"
 finish_after = 1000000
 
 # Reload model from files if exist
-reload = False      # DOES NOT WORK
+reload = True      # DOES NOT WORK
 
 # Save model after this many updates
 save_freq = train_monitor_freq * 10

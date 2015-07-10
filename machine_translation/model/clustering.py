@@ -260,18 +260,6 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                               ])
         logger.info("Done compiling k-means function")
 
-    def rebuild_reverse_item_idx(self):
-        logger.info("Rebuilding reverse_item index...")
-
-        item_cluster = self.item_cluster.get_value()
-        item_pos_in_cluster = self.item_pos_in_cluster.get_value()
-        reverse_item = -numpy.ones(self.b.get_value().shape, dtype='int32')
-
-        for i in range(self.output_dim):
-            reverse_item[item_cluster[i], item_pos_in_cluster[i]] = i
-
-        self.reverse_item.set_value(reverse_item)
-
     def rebuild_item_idx(self):
         logger.info("Rebuilding item_culster,item_pos_in_cluster index...")
 
@@ -493,8 +481,6 @@ class ClusteredSoftmaxDecoder(BaseDecoder):
 
 class ReclusterExtension(SimpleExtension):
     def __init__(self, emitter, max_iters, **kwargs):
-        kwargs.setdefault("on_resumption", True)
-
         self.emitter = emitter
         self.max_iters = max_iters
 
@@ -502,8 +488,5 @@ class ReclusterExtension(SimpleExtension):
 
     def do(self, callback_name, *args):
         logger.info("ReclusterExtension.{}".format(callback_name))
-        if callback_name == 'on_resumption' or callback_name == 'before_training':
-            self.emitter.rebuild_reverse_item_idx()
-        if callback_name != 'on_resumption':
-            self.emitter.do_kmeans(max_iters=self.max_iters)
+        self.emitter.do_kmeans(max_iters=self.max_iters)
 

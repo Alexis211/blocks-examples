@@ -24,7 +24,7 @@ import sys
 
 from operator import mul
 
-from collections import Counter
+from collections import OrderedDict, Counter
 from theano import tensor
 from toolz import merge
 
@@ -131,7 +131,10 @@ def main(config, tr_stream, dev_stream, bokeh=False):
         cg = apply_noise(cg, enc_params+dec_params, config.weight_noise_ff)
 
     # Print shapes
-    shapes = [param.get_value().shape for param in cg.parameters]
+    enc_dec_param_dict = merge(Selector(encoder).get_parameters(),
+                               Selector(decoder).get_parameters())
+    shapes = [pvar.get_value().shape
+              for _, pvar in enc_dec_param_dict.iteritems()]
     logger.info("Parameter shapes: ")
     for shape, count in Counter(shapes).most_common():
         logger.info('    {:15}: {}'.format(shape, count))
@@ -140,8 +143,6 @@ def main(config, tr_stream, dev_stream, bokeh=False):
                 .format(total_params, len(shapes)))
 
     # Print parameter names
-    enc_dec_param_dict = merge(Selector(encoder).get_parameters(),
-                               Selector(decoder).get_parameters())
     logger.info("Parameter names: ")
     for name, value in enc_dec_param_dict.iteritems():
         logger.info('    {:15}: {}'.format(value.get_value().shape, name))
@@ -151,6 +152,8 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     # Set up training model
     logger.info("Building model")
     training_model = Model(cost)
+    # not all parameters are in the computation graph, so synchronize them
+    training_model._parameter_dict = OrderedDict(enc_dec_param_dict)    
 
     # Create saving directory if it does not exist
     if not os.path.exists(config.saveto):

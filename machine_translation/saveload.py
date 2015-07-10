@@ -82,8 +82,8 @@ class CheckpointNMT(SimpleExtension, SaveLoadUtils):
         start = time.time()
         logger.info(" ...saving parameters")
         self.dump_parameters(main_loop)
-        logger.info(" ...saving iteration state")
-        self.dump_iteration_state(main_loop)
+        #logger.info(" ...saving iteration state")
+        #self.dump_iteration_state(main_loop)
         #logger.info(" ...saving log")
         #self.dump_log(main_loop)
         logger.info(" Model saved, took {} seconds.".format(time.time()-start))
@@ -135,27 +135,28 @@ class LoadNMT(TrainingExtension, SaveLoadUtils):
         logger.info(" Reloading model")
         try:
             logger.info(" ...loading model parameters")
-            params_all = self.load_parameters()
-            params_this = main_loop.model.get_parameter_dict()
-            missing = set(params_this.keys()) - set(params_all.keys())
-            for pname in params_this.keys():
-                if pname in params_all:
-                    val = params_all[pname]
-                    if params_this[pname].get_value().shape != val.shape:
+            loaded_params = self.load_parameters()
+            param_vars = main_loop.model.get_parameter_dict()
+            loaded_count = 0
+            for pname, pvar in param_vars.iteritems():
+                if pname in loaded_params:
+                    val = loaded_params[pname]
+                    if pvar.get_value().shape != val.shape:
                         logger.warning(
                             " Dimension mismatch {}-{} for {}"
-                            .format(params_this[pname].get_value().shape,
+                            .format(pvar.get_value().shape,
                                     val.shape, pname))
 
-                    params_this[pname].set_value(val)
+                    pvar.set_value(val)
                     logger.info(" Loaded to CG {:15}: {}"
                                 .format(val.shape, pname))
+                    loaded_count = loaded_count + 1
                 else:
                     logger.warning(
-                        " Parameter does not exist: {}".format(pname))
+                        " Missing stored value for parameter: {}".format(pname))
             logger.info(
                 " Number of parameters loaded for computation graph: {}"
-                .format(len(params_this) - len(missing)))
+                .format(loaded_count))
         except Exception as e:
             logger.error(" Error {0}".format(str(e)))
 
@@ -167,6 +168,6 @@ class LoadNMT(TrainingExtension, SaveLoadUtils):
 
         try:
             logger.info(" Loading log...")
-            #main_loop.log = self.load_log()
+            main_loop.log = self.load_log()
         except Exception as e:
             logger.error(" Error {0}".format(str(e)))
