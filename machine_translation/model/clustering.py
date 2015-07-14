@@ -1,5 +1,6 @@
 import logging
 import theano
+from theano.ifelse import ifelse
 import numpy
 from theano import tensor
 
@@ -203,6 +204,19 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         new_norms = tensor.sqrt((new_sums ** 2).sum(axis=1, keepdims=True))
         new_centroids = new_sums / (new_norms + tensor.eq(new_norms, 0))
 
+        """
+        # If we have an empty cluster, replace its centroid with the centroid of the
+        # biggest cluster plus some perturbation
+        smallest = self.cluster_sizes.argmin()
+        biggest = self.cluster_sizes.argmax()
+        biggest_centroid = new_centroids[biggest, :]
+        candidate_centroid = biggest_centroid + \
+                self.theano_rng.normal(size=biggest_centroid.shape, std=0.001)
+        new_centroids = ifelse(tensor.eq(self.cluster_sizes[smallest], 0),
+                               tensor.set_subtensor(new_centroids[smallest], candidate_centroid),
+                               new_centroids)
+        """
+
         # Calculate new best cluster for the points, storing them in the
         # same fashion as the W and b are already stored (ie according to
         # the old clustering)
@@ -240,6 +254,8 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                 theano.map(build_cluster,
                            sequences=[tensor.arange(self.num_clusters)])
 
+        num_empty = tensor.eq(new_cluster_sizes, 0).sum()
+
         # Trim new clustering data to save time & space
         new_max_clus_size = new_cluster_sizes.max()
         new_W = new_W[:, :new_max_clus_size, :]
@@ -250,7 +266,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # have changed clusters
         self.kmeans_fun = theano.function(
                               inputs=[],
-                              outputs=[num_changed, new_max_clus_size],
+                              outputs=[num_changed, new_max_clus_size, num_empty],
                               updates=[
                                 (self.W, new_W),
                                 (self.b, new_b),
@@ -286,9 +302,9 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         it = 0
         while True:
             it = it + 1
-            num_ch, new_max_clus_size = self.kmeans_fun()
-            logger.info("k-means iteration #{} : {} changed, biggest cluster is {}"
-                    .format(it, num_ch, new_max_clus_size))
+            num_ch, new_max_clus_size, num_empty = self.kmeans_fun()
+            logger.info("k-means iteration #{} : {} changed, biggest cluster is {}, {} empty clusters"
+                    .format(it, num_ch, new_max_clus_size, num_empty))
             if num_ch == 0: break
             if max_iters is not None and it >= max_iters:
                 break
@@ -375,6 +391,9 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                                             - target_clus_nitems,
                                           dtype=theano.config.floatX) \
                               / tensor.cast(random_clus_nitems, dtype=theano.config.floatX)
+        # FIRST RESULTS: our approach does not work. Experiment: set random cluster's weight
+        # to one, like everybody else.
+        # random_clus_weights = tensor.ones_like(random_clus_weights)
 
         # Concatenate all selected clusters into a single cluster choice matrix.
         # The target cluster is always first in this matrix so that extracting the
@@ -487,6 +506,5 @@ class ReclusterExtension(SimpleExtension):
         super(ReclusterExtension, self).__init__(**kwargs)
 
     def do(self, callback_name, *args):
-        logger.info("ReclusterExtension.{}".format(callback_name))
         self.emitter.do_kmeans(max_iters=self.max_iters)
 
