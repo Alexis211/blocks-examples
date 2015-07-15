@@ -7,6 +7,7 @@ import os
 import re
 import signal
 import time
+import cPickle
 
 from blocks.extensions import SimpleExtension
 from blocks.search import BeamSearch
@@ -51,53 +52,38 @@ class SamplingBase(object):
 class Sampler(SimpleExtension, SamplingBase):
     """Random Sampling from model."""
 
-    def __init__(self, model, data_stream, config,
-                 src_vocab=None, trg_vocab=None, src_ivocab=None,
-                 trg_ivocab=None, **kwargs):
+    def __init__(self, model, data_stream,
+                 src_vocab, trg_vocab, config, **kwargs):
         super(Sampler, self).__init__(**kwargs)
+
         self.model = model
         self.config = config
+
         self.data_stream = data_stream
+        self.data_it = iter(self.data_stream.get_epoch_iterator(as_dict=True))
+
         self.src_vocab = src_vocab
         self.trg_vocab = trg_vocab
-        self.src_ivocab = src_ivocab
-        self.trg_ivocab = trg_ivocab
-        self.is_synced = False
+
+        self.src_ivocab = {v: k for k, v in self.src_vocab.items()}
+        self.trg_ivocab = {v: k for k, v in self.trg_vocab.items()}
+
         self.sampling_fn = model.get_theano_function()
 
     def do(self, which_callback, *args):
+        # Get one batch from the data stream we are given
+        try:
+            batch = next(self.data_it)
+        except StopIteration:
+            self.data_it = iter(self.data_stream.get_epoch_iterator(as_dict=True))
+            batch = next(data_it)
 
-        # Get current model parameters
-        if not self.is_synced:
-            self.model.set_parameter_values(self.main_loop.model.get_parameter_values())
-            self.is_synced = True
-
-        # Get dictionaries, this may not be the practical way
-        sources = self._get_attr_rec(self.main_loop, 'data_stream')
-
-        # Load vocabularies and invert if necessary
-        # WARNING: Source and target indices from data stream
-        #  can be different
-        if not self.src_vocab:
-            self.src_vocab = sources.data_streams[0].dataset.dictionary
-        if not self.trg_vocab:
-            self.trg_vocab = sources.data_streams[1].dataset.dictionary
-        if not self.src_ivocab:
-            self.src_ivocab = {v: k for k, v in self.src_vocab.items()}
-        if not self.trg_ivocab:
-            self.trg_ivocab = {v: k for k, v in self.trg_vocab.items()}
-
-        # Randomly select source samples from the current batch
-        # WARNING: Source and target indices from data stream
-        #  can be different
-        batch = args[0]
-
-        # TODO: this is problematic for boundary conditions, eg. last batch
+        # Take one random sentence from that batch as our sample
         sample_idx = numpy.random.choice(
             batch['source'].shape[0], self.config.hook_samples,
             replace=False)
-        src_batch = batch[self.main_loop.data_stream.mask_sources[0]]
-        trg_batch = batch[self.main_loop.data_stream.mask_sources[1]]
+        src_batch = batch['source']
+        trg_batch = batch['target']
 
         input_ = src_batch[sample_idx, :]
         target_ = trg_batch[sample_idx, :]
@@ -283,7 +269,9 @@ class BleuValidator(SimpleExtension, SamplingBase):
             # Save the model here
             s = signal.signal(signal.SIGINT, signal.SIG_IGN)
             logger.info("Saving new model {}".format(model.path))
-            numpy.savez(model.path, **self.main_loop.model.get_parameter_values())
+            param_values = self.main_loop.model.get_parameter_values()
+            with open(model.path, "w") as f:
+                cPickle.dump(param_values, f, protocol=cPickle.HIGHEST_PROTOCOL)
             numpy.savez(
                 self.config.val_bleu_scores_out,
                 bleu_scores=self.val_bleu_curve)

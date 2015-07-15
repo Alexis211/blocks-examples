@@ -59,7 +59,7 @@ from saveload import CheckpointNMT, LoadNMT
 logger = logging.getLogger(__name__)
 
 
-def main(config, tr_stream, dev_stream, bokeh=False):
+def main(config, data_stream, bokeh=False):
 
     # Create Theano variables
     logger.info('Creating theano variables')
@@ -197,7 +197,9 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     if config.hook_samples >= 1:
         logger.info("Building sampler")
         extensions.append(
-            Sampler(model=search_model, config=config, data_stream=tr_stream,
+            Sampler(model=search_model, config=config, data_stream=data_stream.masked_stream,
+                    src_vocab=data_stream.src_vocab,
+                    trg_vocab=data_stream.trg_vocab,
                     every_n_batches=config.sampling_freq))
 
     # Add early stopping based on bleu
@@ -205,7 +207,7 @@ def main(config, tr_stream, dev_stream, bokeh=False):
         logger.info("Building bleu validator")
         extensions.append(
             BleuValidator(sampling_input, samples=samples, config=config,
-                          model=search_model, data_stream=dev_stream,
+                          model=search_model, data_stream=data_stream.dev_stream,
                           every_n_batches=config.bleu_val_freq))
 
     # Plot cost in bokeh if necessary
@@ -230,7 +232,7 @@ def main(config, tr_stream, dev_stream, bokeh=False):
     main_loop = MainLoop(
         model=training_model,
         algorithm=algorithm,
-        data_stream=tr_stream,
+        data_stream=data_stream.masked_stream,
         extensions=extensions
     )
 
@@ -260,5 +262,4 @@ if __name__ == "__main__":
     # Run it
     logger.info("Model options:\n{}".format(pprint.pformat(config)))
     data_stream = importlib.import_module(config.stream)
-    main(config, data_stream.masked_stream, data_stream.dev_stream,
-         args.bokeh)
+    main(config, data_stream, args.bokeh)

@@ -16,16 +16,17 @@ def _length(sentence_pair):
 
 class _oov_to_unk(object):
     """Maps out of vocabulary token index to unk token index."""
-    def __init__(self, src_vocab_size=30000, trg_vocab_size=30000,
-                 unk_id=1):
+    def __init__(self, src_vocab_size, trg_vocab_size,
+                 src_unk_id, trg_unk_id):
         self.src_vocab_size = src_vocab_size
         self.trg_vocab_size = trg_vocab_size
-        self.unk_id = unk_id
+        self.src_unk_id = src_unk_id
+        self.trg_unk_id = trg_unk_id
 
     def __call__(self, sentence_pair):
-        return ([x if x < self.src_vocab_size else self.unk_id
+        return ([x if x < self.src_vocab_size else self.src_unk_id
                  for x in sentence_pair[0]],
-                [x if x < self.trg_vocab_size else self.unk_id
+                [x if x < self.trg_vocab_size else self.trg_unk_id
                  for x in sentence_pair[1]])
 
 
@@ -35,32 +36,40 @@ class _too_long(object):
         self.seq_len = seq_len
 
     def __call__(self, sentence_pair):
-        return all([len(sentence) <= self.seq_len
-                    for sentence in sentence_pair])
-
-# Get helpers
-cs_vocab_file = config.src_vocab
-en_vocab_file = config.trg_vocab
-cs_file = config.src_data
-en_file = config.trg_data
+        return all(len(sentence) <= self.seq_len
+                   for sentence in sentence_pair)
 
 # Load dictionaries and ensure special tokens exist
-cs_vocab = cPickle.load(open(cs_vocab_file))
-en_vocab = cPickle.load(open(en_vocab_file))
-cs_vocab[config.bos_token] = 0
-cs_vocab[config.eos_token] = config.src_vocab_size
-cs_vocab[config.unk_token] = config.unk_id
-en_vocab[config.bos_token] = 0
-en_vocab[config.eos_token] = config.trg_vocab_size
-en_vocab[config.unk_token] = config.unk_id
+src_vocab = cPickle.load(open(config.src_vocab))
+trg_vocab = cPickle.load(open(config.trg_vocab))
+
+# Clean up (necessary...)
+for w in ['<s>', '</s>']:
+    del src_vocab[w]
+    del trg_vocab[w]
+
+# Add back bos/eos/unk
+src_vocab[config.bos_token] = config.src_bos_id
+src_vocab[config.eos_token] = config.src_eos_id
+src_vocab[config.unk_token] = config.src_unk_id
+
+trg_vocab[config.bos_token] = config.trg_bos_id
+trg_vocab[config.eos_token] = config.trg_eos_id
+trg_vocab[config.unk_token] = config.trg_unk_id
 
 # Get text files from both source and target
-cs_dataset = TextFile([cs_file], cs_vocab, None)
-en_dataset = TextFile([en_file], en_vocab, None)
+src_dataset = TextFile([config.src_data], src_vocab,
+                      bos_token=config.bos_token,
+                      eos_token=config.eos_token,
+                      unk_token=config.unk_token)
+trg_dataset = TextFile([config.trg_data], trg_vocab,
+                      bos_token=config.bos_token,
+                      eos_token=config.eos_token,
+                      unk_token=config.unk_token)
 
 # Merge them to get a source, target pair
-stream = Merge([cs_dataset.get_example_stream(),
-                en_dataset.get_example_stream()],
+stream = Merge([src_dataset.get_example_stream(),
+                trg_dataset.get_example_stream()],
                ('source', 'target'))
 
 # Filter sequences that are too long
@@ -71,7 +80,8 @@ stream = Filter(stream,
 stream = Mapping(stream,
                  _oov_to_unk(src_vocab_size=config.src_vocab_size,
                              trg_vocab_size=config.trg_vocab_size,
-                             unk_id=config.unk_id))
+                             src_unk_id=config.src_unk_id,
+                             trg_unk_id=config.trg_unk_id))
 
 # Build a batched version of stream to read k batches ahead
 stream = Batch(stream,
@@ -94,5 +104,5 @@ masked_stream = Padding(stream)
 dev_stream = None
 if hasattr(config, 'val_set') and config.val_set:
     dev_file = config.val_set
-    dev_dataset = TextFile([dev_file], cs_vocab, None)
+    dev_dataset = TextFile([dev_file], src_vocab, None)
     dev_stream = DataStream(dev_dataset)
