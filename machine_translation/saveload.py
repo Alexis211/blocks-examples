@@ -24,7 +24,7 @@ class SaveLoadUtils(object):
 
     @property
     def path_to_parameters(self):
-        return os.path.join(self.folder, 'params.npz')
+        return os.path.join(self.folder, 'params.pkl')
 
     @property
     def path_to_iteration_state(self):
@@ -35,20 +35,13 @@ class SaveLoadUtils(object):
         return os.path.join(self.folder, 'log')
 
     def load_parameter_values(self, path):
-        with closing(numpy.load(path)) as source:
-            param_values = {}
-            for name, value in source.items():
-                if name != 'pkl':
-                    name_ = name.replace(BRICK_DELIMITER, '/')
-                    if not name_.startswith('/'):
-                        name_ = '/' + name_
-                    param_values[name_] = value
+        with open(path) as f:
+            param_values = cPickle.load(f)
         return param_values
 
     def save_parameter_values(self, param_values, path):
-        param_values = {name.replace("/", "-"): param
-                        for name, param in param_values.items()}
-        numpy.savez(path, **param_values)
+        with open(path, "w") as f:
+            cPickle.dump(param_values, f, protocol=cPickle.HIGHEST_PROTOCOL)
 
 
 class CheckpointNMT(SimpleExtension, SaveLoadUtils):

@@ -236,7 +236,7 @@ class FullSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
 class FullSoftmaxDecoder(BaseDecoder):
     def __init__(self, **kwargs):
-        emitter = FullSoftmaxemitter(readout_dim=kwargs['embedding_dim'],
+        emitter = FullSoftmaxEmitter(readout_dim=kwargs['embedding_dim'],
                                      output_dim=kwargs['vocab_size'],
                                      initial_output=-1)
         super(FullSoftmaxDecoder, self).__init__(emitter=emitter,
