@@ -16,18 +16,14 @@ def _length(sentence_pair):
 
 class _oov_to_unk(object):
     """Maps out of vocabulary token index to unk token index."""
-    def __init__(self, src_vocab_size, trg_vocab_size,
-                 src_unk_id, trg_unk_id):
-        self.src_vocab_size = src_vocab_size
-        self.trg_vocab_size = trg_vocab_size
-        self.src_unk_id = src_unk_id
-        self.trg_unk_id = trg_unk_id
+    def __init__(self, vocab_size, unk_id):
+        self.vocab_size = vocab_size
+        self.unk_id = unk_id
 
-    def __call__(self, sentence_pair):
-        return ([x if x < self.src_vocab_size else self.src_unk_id
-                 for x in sentence_pair[0]],
-                [x if x < self.trg_vocab_size else self.trg_unk_id
-                 for x in sentence_pair[1]])
+    def __call__(self, sentence):
+        assert len(sentence) == 1
+        return ([x if x < self.vocab_size else self.unk_id
+                 for x in sentence[0]],)
 
 
 class _too_long(object):
@@ -67,21 +63,25 @@ trg_dataset = TextFile([config.trg_data], trg_vocab,
                       eos_token=config.eos_token,
                       unk_token=config.unk_token)
 
+# Create streams from the datasets
+src_stream = src_dataset.get_example_stream()
+trg_stream = trg_dataset.get_example_stream()
+
+# Replace out of vocabulary tokens with unk token
+src_oov_to_unk_map = _oov_to_unk(vocab_size=config.src_vocab_size,
+                                 unk_id=config.src_unk_id)
+trg_oov_to_unk_map = _oov_to_unk(vocab_size=config.trg_vocab_size,
+                                 unk_id=config.trg_unk_id)
+src_stream = Mapping(src_stream, src_oov_to_unk_map)
+trg_stream = Mapping(trg_stream, trg_oov_to_unk_map)
+
 # Merge them to get a source, target pair
-stream = Merge([src_dataset.get_example_stream(),
-                trg_dataset.get_example_stream()],
+stream = Merge([src_stream, trg_stream],
                ('source', 'target'))
 
 # Filter sequences that are too long
 stream = Filter(stream,
                 predicate=_too_long(seq_len=config.seq_len))
-
-# Replace out of vocabulary tokens with unk token
-stream = Mapping(stream,
-                 _oov_to_unk(src_vocab_size=config.src_vocab_size,
-                             trg_vocab_size=config.trg_vocab_size,
-                             src_unk_id=config.src_unk_id,
-                             trg_unk_id=config.trg_unk_id))
 
 # Build a batched version of stream to read k batches ahead
 stream = Batch(stream,
@@ -103,6 +103,9 @@ masked_stream = Padding(stream)
 # Setup development set stream if necessary
 dev_stream = None
 if hasattr(config, 'val_set') and config.val_set:
-    dev_file = config.val_set
-    dev_dataset = TextFile([dev_file], src_vocab, None)
-    dev_stream = DataStream(dev_dataset)
+    dev_dataset = TextFile([config.val_set], src_vocab,
+                           bos_token=config.bos_token,
+                           eos_token=config.eos_token,
+                           unk_token=config.unk_token)
+    dev_stream = dev_dataset.get_example_stream()
+    dev_stream = Mapping(dev_stream, src_oov_to_unk_map)

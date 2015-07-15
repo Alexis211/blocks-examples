@@ -198,16 +198,17 @@ def main(config, data_stream, bokeh=False):
         logger.info("Building sampler")
         extensions.append(
             Sampler(model=search_model, config=config, data_stream=data_stream.masked_stream,
-                    src_vocab=data_stream.src_vocab,
-                    trg_vocab=data_stream.trg_vocab,
+                    src_vocab=data_stream.src_vocab, trg_vocab=data_stream.trg_vocab,
                     every_n_batches=config.sampling_freq))
 
     # Add early stopping based on bleu
     if config.bleu_script is not None:
         logger.info("Building bleu validator")
         extensions.append(
-            BleuValidator(sampling_input, samples=samples, config=config,
-                          model=search_model, data_stream=data_stream.dev_stream,
+            BleuValidator(source_sentence=sampling_input,
+                          model=search_model, config=config, data_stream=data_stream.dev_stream,
+                          samples=samples,
+                          src_vocab=data_stream.src_vocab, trg_vocab=data_stream.trg_vocab,
                           every_n_batches=config.bleu_val_freq))
 
     # Plot cost in bokeh if necessary

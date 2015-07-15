@@ -82,10 +82,17 @@ src_vocab_size = 40000
 trg_vocab_size = 40000
 
 # Special tokens and indexes
-unk_id = 1
 bos_token = '<S>'
 eos_token = '</S>'
 unk_token = '<UNK>'
+
+src_bos_id = 0
+src_eos_id = 1
+src_unk_id = src_vocab_size - 1
+
+trg_bos_id = 0
+trg_eos_id = 1
+trg_unk_id = trg_vocab_size - 1
 
 # Early stopping based on bleu related ------------------------------------
 
@@ -94,7 +101,8 @@ normalized_bleu = True
 
 # Bleu script that will be used (moses multi-perl in this case)
 # bleu_script = None #datadir + 'multi-bleu.perl'
-bleu_script = "/data/lisatmp3/firatorh/turkishParallelCorpora/iwslt14/scripts/multi-bleu.perl"
+# bleu_script = "/data/lisatmp3/firatorh/turkishParallelCorpora/iwslt14/scripts/multi-bleu.perl"
+bleu_script = None # beam search for Bleu does not work on the clustered model
 
 # Validation set source file
 val_set = datadir + 'newstest2013.tok.cs'

@@ -99,16 +99,16 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                                              self.readout_dim + 1 + self.mips_to_mcss_params['m']),
                                             name='class_centroids')
         # The actual number of items in each class (used to generate a mask)
-        self.cluster_sizes = theano.shared(numpy.zeros(self.num_clusters).astype(numpy.int32),
+        self.cluster_sizes = theano.shared(numpy.zeros(self.num_clusters).astype(numpy.int64),
                                            name='cluster_sizes')
         # Lookup table for each item: in which class and at which position is it?
-        self.item_cluster = theano.shared(-numpy.ones(self.output_dim).astype(numpy.int32),
+        self.item_cluster = theano.shared(-numpy.ones(self.output_dim).astype(numpy.int64),
                                           name='item_cluster')
-        self.item_pos_in_cluster = theano.shared(-numpy.ones(self.output_dim).astype(numpy.int32),
+        self.item_pos_in_cluster = theano.shared(-numpy.ones(self.output_dim).astype(numpy.int64),
                                                  name='item_pos_in_cluster')
         # Reverse lookup table: for each item in a class, what is the actual item
         self.reverse_item = theano.shared(-numpy.ones((self.num_clusters, self.cluster_max_size))
-                                                .astype(numpy.int32),
+                                                .astype(numpy.int64),
                                           name='reverse_item')
 
         add_role(self.W, WEIGHT)
@@ -140,8 +140,8 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         self.biases_init.initialize(self.b, self.rng)
 
         # Calculate class sizes
-        cluster_sizes = (self.output_dim / self.num_clusters) * \
-                      numpy.ones(self.num_clusters, dtype='int32')
+        cluster_sizes = int(self.output_dim / self.num_clusters) * \
+                      numpy.ones(self.num_clusters, dtype='int64')
         n_bigger_classes = self.output_dim % self.num_clusters
         cluster_sizes[:n_bigger_classes] += 1
         self.cluster_sizes.set_value(cluster_sizes)
@@ -168,7 +168,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         return self.W.shape[1]
 
     def class_mask(self, cluster_sizes):
-        return tensor.lt(tensor.arange(self.biggest_cluster_size, dtype='int32')[None, :],
+        return tensor.lt(tensor.arange(self.biggest_cluster_size)[None, :],
                          cluster_sizes[:, None])
 
     def compile_kmeans_fun(self):
@@ -272,7 +272,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                                 (self.b, new_b),
                                 (self.reverse_item, new_reverse_item),
                                 (self.centroids, new_centroids),
-                                (self.cluster_sizes, tensor.cast(new_cluster_sizes, 'int32')),
+                                (self.cluster_sizes, new_cluster_sizes),
                               ])
         logger.info("Done compiling k-means function")
 
@@ -312,9 +312,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # Rebuild item_cluster and item_pos_in_cluster
         self.rebuild_item_idx()
 
-
-    @application
-    def emit(self, readouts):
+    def generative_items_and_probs(self, readouts):
         batch_size = readouts.shape[0]
 
         # Do the MIPS->MCSS transform on the readout vectors
@@ -339,17 +337,23 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # Calculate energies and softmax for the selected clusters
         energies = sparse_block_dot(self.W[None, :, :, :].dimshuffle(0, 1, 3, 2),
                                     readouts[:, None, :],
-                                    tensor.zeros((batch_size, 1), dtype='int32'),
+                                    tensor.zeros((batch_size, 1), dtype='int64'),
                                     self.b,
                                     best_clus)
         energies = energies.reshape(final_shape)
                             
         probs = weighted_softmax(energies, mask)
 
-        # Sample from the probabilities given by our partial softmax
+        return items, probs
+
+    @application
+    def emit(self, readouts):
+        batch_size = readouts.shape[0]
+
+        items, probs = self.generative_items_and_probs(readouts)
+
         gen = self.theano_rng.multinomial(pvals=probs).argmax(axis=1)
 
-        # Do a search in our reverse index to get the corresponding class numbers
         return items[tensor.arange(batch_size), gen]
 
     @application
@@ -455,7 +459,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # Calculates energies and corresponding softmax probabilities
         energies = sparse_block_dot(W[None, :, :, :].dimshuffle(0, 1, 3, 2),
                                     readouts[:, None, :],
-                                    tensor.zeros((batch_size, 1), dtype='int32'),
+                                    tensor.zeros((batch_size, 1), dtype='int64'),
                                     b,
                                     selected_clus)
         energies = energies.reshape(flat_shape)
@@ -469,7 +473,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
         # Get probabilities of the targets
         target_prob = probs[tensor.arange(batch_size),
-                            tensor.zeros((batch_size,), dtype='int32'),
+                            tensor.zeros((batch_size,), dtype='int64'),
                             self.item_pos_in_cluster[outputs]].reshape(outputs_orig_shape)
 
         # target_prob = theano.printing.Print("target_prob")(target_prob)
@@ -479,7 +483,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
     @application
     def initial_outputs(self, batch_size):
-        return self.initial_output * tensor.ones((batch_size,), dtype='int32')
+        return self.initial_output * tensor.ones((batch_size,), dtype='int64')
 
     def get_dim(self, name):
         if name == 'outputs':
