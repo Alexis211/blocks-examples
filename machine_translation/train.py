@@ -29,7 +29,7 @@ from theano import tensor
 from toolz import merge
 
 from blocks.algorithms import (GradientDescent, StepClipping,
-                               CompositeRule)
+                               RemoveNotFinite, CompositeRule)
 from blocks.extensions import FinishAfter, Printing
 from blocks.extensions.monitoring import TrainingDataMonitoring
 from blocks.filter import VariableFilter
@@ -225,7 +225,8 @@ def main(config, data_stream, bokeh=False):
     logger.info("Initializing training algorithm")
     algorithm = CustomizedGradientDescent(
         cost=cost, parameters=cg.parameters,
-        step_rule=CompositeRule([StepClipping(config.step_clipping),
+        step_rule=CompositeRule([RemoveNotFinite(),
+                                 StepClipping(config.step_clipping),
                                  config.step_rule])
     )
 
