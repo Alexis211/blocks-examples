@@ -285,7 +285,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         logger.info("Done compiling k-means function")
 
     def rebuild_item_idx(self):
-        logger.info("Rebuilding item_culster,item_pos_in_cluster index...")
+        logger.info("Rebuilding item_cluster,item_pos_in_cluster index...")
 
         cluster_sizes = self.cluster_sizes.get_value()
         reverse_item = self.reverse_item.get_value()
@@ -298,6 +298,9 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                 item = reverse_item[c, i]
                 item_cluster[item] = c
                 item_pos_in_cluster[item] = i
+
+        # Sanity check
+        assert numpy.equal(item_cluster, -1).sum() == 0
 
         self.item_cluster.set_value(item_cluster)
         self.item_pos_in_cluster.set_value(item_pos_in_cluster)
@@ -313,8 +316,11 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
             num_ch, new_max_clus_size, num_empty = self.kmeans_fun()
             logger.info("k-means iteration #{} : {} changed, biggest cluster is {}, {} empty clusters"
                     .format(it, num_ch, new_max_clus_size, num_empty))
-            if num_ch == 0: break
-            if max_iters is not None and it >= max_iters:
+
+            # Sanity check
+            assert self.cluster_sizes.get_value().sum() == self.output_dim
+
+            if num_ch == 0 or (max_iters is not None and it >= max_iters):
                 break
 
         # Rebuild item_cluster and item_pos_in_cluster

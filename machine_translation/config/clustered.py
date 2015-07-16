@@ -1,6 +1,6 @@
 import os
 
-from blocks.algorithms import AdaDelta
+from blocks.algorithms import Momentum
 
 from model.encoder import BidirectionalEncoder as Encoder
 from model.clustering import ClusteredSoftmaxDecoder as Decoder
@@ -42,7 +42,7 @@ batch_size = 80
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = AdaDelta()
+step_rule = Momentum(learning_rate=0.01, momentum=0.99)
 
 # Gradient clipping threshold
 step_clipping = 1
