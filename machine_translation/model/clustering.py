@@ -175,7 +175,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
     def biggest_cluster_size(self):
         return self.W.shape[1]
 
-    def class_mask(self, cluster_sizes):
+    def cluster_mask(self, cluster_sizes):
         return tensor.lt(tensor.arange(self.biggest_cluster_size)[None, :],
                          cluster_sizes[:, None])
 
@@ -205,10 +205,10 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         tvecs = tvecs.reshape((self.num_clusters, self.biggest_cluster_size, tdim))
 
         # Generate a mask for all the classes (according to previous clustering)
-        class_mask = self.class_mask(self.cluster_sizes)
+        cluster_mask = self.cluster_mask(self.cluster_sizes)
                             
         # Calculate new centroids
-        new_sums = (tvecs * class_mask[:, :, None]).sum(axis=1)
+        new_sums = (tvecs * cluster_mask[:, :, None]).sum(axis=1)
         new_norms = tensor.sqrt((new_sums ** 2).sum(axis=1, keepdims=True))
         new_centroids = new_sums / (new_norms + tensor.eq(new_norms, 0))
 
@@ -228,13 +228,13 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # Calculate new best cluster for the points, storing them in the
         # same fashion as the W and b are already stored (ie according to
         # the old clustering)
-        new_bestclus = tensor.dot(tvecs, new_centroids.T).argmax(axis=2) * class_mask \
-                        + (class_mask - 1)
+        new_bestclus = tensor.dot(tvecs, new_centroids.T).argmax(axis=2) * cluster_mask \
+                        + (cluster_mask - 1)
 
         # Calculate number of items that change cluster (we stop when this is zero)
         num_changed = tensor.sum(tensor.neq(new_bestclus,
                                             tensor.arange(self.num_clusters)[:, None])
-                                    * class_mask)
+                                    * cluster_mask)
 
         # Flatten all the data, ie undo the clustering (some places are still unused,
         # there is a mask). This is simpler for when we do the eq-nonzero thing in the
@@ -334,7 +334,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                        best_clus.shape[1] * self.biggest_cluster_size)
 
         # Calculate a mask for the items in the cluster we selected
-        mask = self.class_mask(self.cluster_sizes[best_clus.flatten()])
+        mask = self.cluster_mask(self.cluster_sizes[best_clus.flatten()])
         mask = mask.reshape(final_shape)
 
         # This index maps items in cluster to their identity as a class number
@@ -449,7 +449,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # Calculate a weight matrix for each individual element of the selected clusters
         # by combining the cluster-specific weights and a mask for the unused items
         # in cluster storage space
-        weights = self.class_mask(self.cluster_sizes[selected_clus.flatten()])\
+        weights = self.cluster_mask(self.cluster_sizes[selected_clus.flatten()])\
                         .reshape((selected_clus.shape[0],
                                   selected_clus.shape[1],
                                   self.biggest_cluster_size)) \
