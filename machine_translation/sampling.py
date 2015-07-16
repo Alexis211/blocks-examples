@@ -184,6 +184,12 @@ class BleuValidator(SimpleExtension, SamplingBase):
                     total_cost += costs[best]
                     trans_out = trans[best]
 
+                    # remove <S> and </S>
+                    if len(trans_out) > 0 and trans_out[0] == self.config.trg_bos_idx:
+                        trans_out = trans_out[1:]
+                    if len(trans_out) > 0 and trans_out[-1] == self.config.trg_eos_idx:
+                        trans_out = trans_out[:-1]
+
                     # convert idx to words
                     trans_out = self._idx_to_word(trans_out, self.trg_ivocab)
 
