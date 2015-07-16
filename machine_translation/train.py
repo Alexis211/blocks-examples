@@ -213,9 +213,11 @@ def main(config, data_stream, bokeh=False):
 
     # Plot cost in bokeh if necessary
     if bokeh:
+        plot_chans = [[cost.name]]
+        logger.info("Plot channels: {}".format(repr(plot_chans)))
         extensions.append(
             Plot(document=config.plot_title,
-                 channels=[[cost.name]],
+                 channels=plot_chans,
                  every_n_batches=config.train_monitor_freq,
                  server_url='http://eos6:5006'))
 

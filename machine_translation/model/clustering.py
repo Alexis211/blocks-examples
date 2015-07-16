@@ -6,7 +6,7 @@ from theano import tensor
 
 from theano.sandbox.blocksparse import sparse_block_dot
 
-from blocks.algorithms import Scale
+from blocks.algorithms import Scale, StepClipping, CompositeRule
 
 from blocks.roles import add_role, WEIGHT, BIAS
 
@@ -116,11 +116,13 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         add_role(self.b, BIAS)
 
         # Disable gradient descent on those "annex" variables
-        for v in [self.centroids, self.cluster_sizes, self.item_cluster, self.item_pos_in_cluster, self.reverse_item]:
+        for v in [self.centroids, self.cluster_sizes,
+                  self.item_cluster, self.item_pos_in_cluster, self.reverse_item]:
             v.tag.custom_step_rule = None
         # Use a simple scale rule for W and b
-        self.W.tag.custom_step_rule = Scale(0.1)
-        self.b.tag.custom_step_rule = Scale(0.1)
+        custom_rule = CompositeRule([StepClipping(1), Scale(0.1)])
+        self.W.tag.custom_step_rule = custom_rule
+        self.b.tag.custom_step_rule = custom_rule
 
         self.parameters = [self.W, self.b,
                            self.centroids,

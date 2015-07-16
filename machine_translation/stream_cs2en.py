@@ -55,14 +55,14 @@ trg_vocab[config.unk_token] = config.trg_unk_id
 
 # Get text files from both source and target
 src_dataset = TextFile([config.src_data], src_vocab,
-                      bos_token=config.bos_token,
-                      eos_token=config.eos_token,
-                      unk_token=config.unk_token)
+                       bos_token=config.bos_token,
+                       eos_token=config.eos_token,
+                       unk_token=config.unk_token)
 trg_dataset = TextFile([config.trg_data], trg_vocab,
-                      bos_token=config.bos_token,
-                      eos_token=config.eos_token,
-                      unk_token=config.unk_token)
-
+                       bos_token=config.bos_token,
+                       eos_token=config.eos_token,
+                       unk_token=config.unk_token)
+ 
 # Create streams from the datasets
 src_stream = src_dataset.get_example_stream()
 trg_stream = trg_dataset.get_example_stream()

@@ -23,7 +23,7 @@ saveto = os.path.join('model_data', 'search_model_cs2en_clustered')
 
 # Clustering related
 num_clusters = 200
-cluster_max_size = 2000
+cluster_max_size = 3000
 emit_k_best_clusters = 5
 cost_k_best_clusters = 5
 
