@@ -1,6 +1,6 @@
 import os
 
-from blocks.algorithms import Scale
+from blocks.algorithms import AdaDelta
 
 from model.encoder import BidirectionalEncoder as Encoder
 from model.clustering import ClusteredSoftmaxDecoder as Decoder
@@ -28,7 +28,7 @@ emit_k_best_clusters = 5
 cost_k_best_clusters = 5
 
 recluster_freq = 48
-recluster_max_iters = 20
+recluster_max_iters = 10
 
 # Params for the MIPS -> MCSS transform used in the sph. kmeans clustering
 mips_to_mcss_params = {'m': 3, 'U': 0.85}
@@ -42,7 +42,7 @@ batch_size = 80
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = Scale(learning_rate=0.1)
+step_rule = AdaDelta()
 
 # Gradient clipping threshold
 step_clipping = 1

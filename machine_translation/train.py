@@ -40,7 +40,7 @@ from blocks.model import Model
 from blocks.select import Selector
 from blocks.roles import has_roles
 
-from model import NO_GRADIENT
+from model import CustomizedGradientDescent
 
 from model.clustering import ClusteredSoftmaxEmitter, ReclusterExtension
 
@@ -221,9 +221,8 @@ def main(config, data_stream, bokeh=False):
 
     # Set up training algorithm
     logger.info("Initializing training algorithm")
-    parameters = [p for p in cg.parameters if not has_roles(p, [NO_GRADIENT])]
-    algorithm = GradientDescent(
-        cost=cost, parameters=parameters,
+    algorithm = CustomizedGradientDescent(
+        cost=cost, parameters=cg.parameters,
         step_rule=CompositeRule([StepClipping(config.step_clipping),
                                  config.step_rule])
     )

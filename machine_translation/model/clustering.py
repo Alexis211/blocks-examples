@@ -6,6 +6,8 @@ from theano import tensor
 
 from theano.sandbox.blocksparse import sparse_block_dot
 
+from blocks.algorithms import Scale
+
 from blocks.roles import add_role, WEIGHT, BIAS
 
 from blocks.extensions import SimpleExtension
@@ -17,8 +19,6 @@ from blocks.bricks import Linear, Bias, Initializable, Random
 from blocks.utils import shared_floatx_nans
 
 from decoder import BaseDecoder
-
-from model import NO_GRADIENT
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ def weighted_softmax(energies, weights):
     emax = (energies * tensor.neq(weights, 0)).max(axis=1, keepdims=True)
     energies = energies - emax
     expenergies = tensor.exp(energies) * weights
+
     sumee = expenergies.sum(axis=1, keepdims=True)
     return expenergies / (sumee + tensor.eq(sumee, 0))
     # TODO: the gradient can be efficiently computed (optimization)
@@ -113,11 +114,14 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
         add_role(self.W, WEIGHT)
         add_role(self.b, BIAS)
-        add_role(self.centroids, NO_GRADIENT)
-        add_role(self.cluster_sizes, NO_GRADIENT)
-        add_role(self.item_cluster, NO_GRADIENT)
-        add_role(self.item_pos_in_cluster, NO_GRADIENT)
-        add_role(self.reverse_item, NO_GRADIENT)
+
+        # Disable gradient descent on those "annex" variables
+        for v in [self.centroids, self.cluster_sizes, self.item_cluster, self.item_pos_in_cluster, self.reverse_item]:
+            v.tag.custom_step_rule = None
+        # Use a simple scale rule for W and b
+        self.W.tag.custom_step_rule = Scale(0.1)
+        self.b.tag.custom_step_rule = Scale(0.1)
+
         self.parameters = [self.W, self.b,
                            self.centroids,
                            self.cluster_sizes,
