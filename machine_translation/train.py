@@ -169,6 +169,16 @@ def main(config, data_stream, bokeh=False):
                       every_n_batches=config.save_freq)
     ]
 
+    # Plot cost in bokeh if necessary
+    if bokeh:
+        plot_chans = [[cost.name]]
+        logger.info("Plot channels: {}".format(repr(plot_chans)))
+        extensions.append(
+            Plot(document=config.plot_title,
+                 channels=plot_chans,
+                 every_n_batches=config.train_monitor_freq,
+                 server_url='http://eos6:5006'))
+
     # Set up beam search and sampling computation graphs if necessary
     if config.hook_samples >= 1 or config.bleu_script is not None:
         logger.info("Building sampling model")
@@ -210,16 +220,6 @@ def main(config, data_stream, bokeh=False):
                           samples=samples,
                           src_vocab=data_stream.src_vocab, trg_vocab=data_stream.trg_vocab,
                           every_n_batches=config.bleu_val_freq))
-
-    # Plot cost in bokeh if necessary
-    if bokeh:
-        plot_chans = [[cost.name]]
-        logger.info("Plot channels: {}".format(repr(plot_chans)))
-        extensions.append(
-            Plot(document=config.plot_title,
-                 channels=plot_chans,
-                 every_n_batches=config.train_monitor_freq,
-                 server_url='http://eos6:5006'))
 
     # Set up training algorithm
     logger.info("Initializing training algorithm")
