@@ -122,7 +122,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                   self.item_cluster, self.item_pos_in_cluster, self.reverse_item]:
             v.tag.custom_step_rule = None
         # Use a simple scale rule for W and b
-        custom_rule = CompositeRule([RemoveNotFinite(), StepClipping(1), Scale(0.1)])
+        custom_rule = CompositeRule([RemoveNotFinite(), StepClipping(1), Scale(0.01)])
         self.W.tag.custom_step_rule = custom_rule
         self.b.tag.custom_step_rule = custom_rule
 
@@ -208,22 +208,19 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         cluster_mask = self.cluster_mask(self.cluster_sizes)
                             
         # Calculate new centroids
-        new_sums = (tvecs * cluster_mask[:, :, None]).sum(axis=1)
-        new_norms = tensor.sqrt((new_sums ** 2).sum(axis=1, keepdims=True))
-        new_centroids = new_sums / (new_norms + tensor.eq(new_norms, 0))
+        new_centroids = (tvecs * cluster_mask[:, :, None]).sum(axis=1)
 
-        """
-        # If we have an empty cluster, replace its centroid with the centroid of the
-        # biggest cluster plus some perturbation
+        # If we have an empty cluster, replace its centroid with one item of
+        # the biggest centroid
         smallest = self.cluster_sizes.argmin()
         biggest = self.cluster_sizes.argmax()
-        biggest_centroid = new_centroids[biggest, :]
-        candidate_centroid = biggest_centroid + \
-                self.theano_rng.normal(size=biggest_centroid.shape, std=0.001)
-        new_centroids = ifelse(tensor.eq(self.cluster_sizes[smallest], 0),
-                               tensor.set_subtensor(new_centroids[smallest], candidate_centroid),
-                               new_centroids)
-        """
+        first_rep = tensor.set_subtensor(new_centroids[smallest], tvecs[biggest, 0] + tvecs[biggest, 1])
+        new_centroids = ifelse(tensor.le(self.cluster_sizes[smallest], 2),
+                               first_rep, new_centroids)
+
+        # Normalize centroids
+        new_norms = tensor.sqrt((new_centroids ** 2).sum(axis=1, keepdims=True))
+        new_centroids = new_centroids / (new_norms + tensor.eq(new_norms, 0))
 
         # Calculate new best cluster for the points, storing them in the
         # same fashion as the W and b are already stored (ie according to
@@ -266,6 +263,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
 
         # Trim new clustering data to save time & space
         new_max_clus_size = new_cluster_sizes.max()
+        new_min_clus_size = new_cluster_sizes.min()
         new_W = new_W[:, :new_max_clus_size, :]
         new_b = new_b[:, :new_max_clus_size]
         new_reverse_item = new_reverse_item[:, :new_max_clus_size]
@@ -274,7 +272,8 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # have changed clusters
         self.kmeans_fun = theano.function(
                               inputs=[],
-                              outputs=[num_changed, new_max_clus_size, num_empty],
+                              outputs=[num_changed, new_max_clus_size,
+                                       new_min_clus_size, num_empty],
                               updates=[
                                 (self.W, new_W),
                                 (self.b, new_b),
@@ -313,9 +312,9 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
         it = 0
         while True:
             it = it + 1
-            num_ch, new_max_clus_size, num_empty = self.kmeans_fun()
-            logger.info("k-means iteration #{} : {} changed, biggest cluster is {}, {} empty clusters"
-                    .format(it, num_ch, new_max_clus_size, num_empty))
+            num_ch, new_max_clus_size, new_min_clus_size, num_empty = self.kmeans_fun()
+            logger.info("k-means iteration #{} : {} changed, biggest/smallest cluster is {}/{}, {} empty clusters"
+                    .format(it, num_ch, new_max_clus_size, new_min_clus_size, num_empty))
 
             # Sanity check
             assert self.cluster_sizes.get_value().sum() == self.output_dim

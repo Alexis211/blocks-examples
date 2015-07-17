@@ -42,7 +42,7 @@ batch_size = 80
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = Momentum(learning_rate=0.01, momentum=0.99)
+step_rule = Momentum(learning_rate=0.001, momentum=0.99)
 
 # Gradient clipping threshold
 step_clipping = 1
