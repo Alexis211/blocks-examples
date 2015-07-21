@@ -122,7 +122,7 @@ class ClusteredSoftmaxEmitter(AbstractEmitter, Initializable, Random):
                   self.item_cluster, self.item_pos_in_cluster, self.reverse_item]:
             v.tag.custom_step_rule = None
         # Use a simple scale rule for W and b
-        custom_rule = CompositeRule([RemoveNotFinite(), StepClipping(1), Scale(0.01)])
+        custom_rule = CompositeRule([RemoveNotFinite(), StepClipping(1), Scale(0.001)])
         self.W.tag.custom_step_rule = custom_rule
         self.b.tag.custom_step_rule = custom_rule
 

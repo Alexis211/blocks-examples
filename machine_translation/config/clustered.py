@@ -1,6 +1,6 @@
 import os
 
-from blocks.algorithms import Momentum
+from blocks.algorithms import AdaDelta, Momentum
 
 from model.encoder import BidirectionalEncoder as Encoder
 from model.clustering import ClusteredSoftmaxDecoder as Decoder
@@ -11,12 +11,12 @@ from model.clustering import ClusteredSoftmaxDecoder as Decoder
 seq_len = 50
 
 # Number of hidden units in encoder/decoder GRU
-enc_nhids = 100
-dec_nhids = 100
+enc_nhids = 1000
+dec_nhids = 1000
 
 # Dimension of the word embedding matrix in encoder/decoder
-enc_embed = 62
-dec_embed = 62
+enc_embed = 100
+dec_embed = 100
 
 # Where to save model, this corresponds to 'prefix' in groundhog
 saveto = os.path.join('model_data', 'search_model_cs2en_clustered')
@@ -42,7 +42,8 @@ batch_size = 80
 sort_k_batches = 12
 
 # Optimization step rule
-step_rule = Momentum(learning_rate=0.001, momentum=0.99)
+# step_rule = Momentum(learning_rate=0.0001, momentum=0.99)
+step_rule = AdaDelta()
 
 # Gradient clipping threshold
 step_clipping = 1
@@ -134,7 +135,7 @@ plot_title = "Cs-En clustered"
 finish_after = 1000000
 
 # Reload model from files if exist
-reload = True      # DOES NOT WORK
+reload = True
 
 # Save model after this many updates
 save_freq = train_monitor_freq * 10

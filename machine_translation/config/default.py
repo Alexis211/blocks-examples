@@ -1,6 +1,6 @@
 import os
 
-from blocks.algorithms import AdaDelta
+from blocks.algorithms import AdaDelta, Momentum
 
 # Which model to use ------------------------------------------------------
 
@@ -13,12 +13,12 @@ from model.decoder import FullSoftmaxDecoder as Decoder
 seq_len = 50
 
 # Number of hidden units in encoder/decoder GRU
-enc_nhids = 100
-dec_nhids = 100
+enc_nhids = 1000
+dec_nhids = 1000
 
 # Dimension of the word embedding matrix in encoder/decoder
-enc_embed = 62
-dec_embed = 62
+enc_embed = 100
+dec_embed = 100
 
 # Where to save model, this corresponds to 'prefix' in groundhog
 saveto = os.path.join('model_data', 'search_model_cs2en')
@@ -32,6 +32,7 @@ batch_size = 80
 sort_k_batches = 12
 
 # Optimization step rule
+# step_rule = Momentum(learning_rate=0.0001, momentum=0.99)
 step_rule = AdaDelta()
 
 # Gradient clipping threshold
