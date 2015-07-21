@@ -129,7 +129,7 @@ class BaseDecoder(Initializable):
         self.children = [self.sequence_generator]
 
     @application(inputs=['representation', 'source_sentence_mask',
-                         'target_sentence_mask', 'target_sentence'],
+                         'target_sentence', 'target_sentence_mask'],
                  outputs=['cost'])
     def cost(self, representation, source_sentence_mask,
              target_sentence, target_sentence_mask):
@@ -139,11 +139,11 @@ class BaseDecoder(Initializable):
         target_sentence_mask = target_sentence_mask.T
 
         # Get the cost matrix
-        cost = self.sequence_generator.cost_matrix(**{
-            'mask': target_sentence_mask,
-            'outputs': target_sentence,
-            'attended': representation,
-            'attended_mask': source_sentence_mask}
+        cost = self.sequence_generator.cost_matrix(
+                    mask=target_sentence_mask,
+                    outputs=target_sentence,
+                    attended=representation,
+                    attended_mask=source_sentence_mask
         )
 
         return (cost * target_sentence_mask).sum() / \
